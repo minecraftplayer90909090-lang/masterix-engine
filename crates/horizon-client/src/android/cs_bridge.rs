@@ -263,7 +263,7 @@ pub fn run(app: AndroidApp, launch: Launch) {
 
     let result = (|| -> horizon_client::Result<()> {
         if !horizon_client::official_install::ready(&home) {
-            return Err("Horizon engine is not installed. Install it from CS Launcher first.".into());
+            return Err("Horizon engine is not installed. Install it from Masterix first.".into());
         }
         let mut config = crate::catalog::Config::load(&home);
         // The same startup recovery as the Rust launcher: an interrupted Vulkan start falls back to GLES.
@@ -281,10 +281,10 @@ pub fn run(app: AndroidApp, launch: Launch) {
         if let Err(e) =
             horizon_client::skins::set_offline_skin(path(&launch.skin).as_deref(), &launch.skin_model)
         {
-            log::warn!("CS skin not loaded: {e}");
+            log::warn!("Masterix skin not loaded: {e}");
         }
         if let Err(e) = horizon_client::skins::set_offline_cape(path(&launch.cape).as_deref()) {
-            log::warn!("CS cape not loaded: {e}");
+            log::warn!("Masterix cape not loaded: {e}");
         }
         if launch.host_input {
             // Mouse + keyboard semantics: cursor in menus, captured look in the world.
@@ -345,7 +345,7 @@ pub fn run(app: AndroidApp, launch: Launch) {
     match result {
         Ok(()) => write_exit(&home, None),
         Err(error) => {
-            log::error!("Horizon (CS host): {error}");
+            log::error!("Horizon (Masterix host): {error}");
             crate::diagnostics::record_error(&error.to_string());
             horizon_client::crash::report_error(&home, "client", &*error);
             let _ = std::fs::write(home.join("android-error.txt"), error.to_string());

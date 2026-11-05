@@ -635,7 +635,7 @@ impl Game<'_> {
                     "cs-server-icon-world.png"
                 } else {
                     self.system_message(Text::literal(
-                        "This world has no icon yet (it is taken on the first save); using the CS Launcher icon.",
+                        "This world has no icon yet (it is taken on the first save); using the Masterix icon.",
                     ));
                     ICON_FILES[0]
                 }

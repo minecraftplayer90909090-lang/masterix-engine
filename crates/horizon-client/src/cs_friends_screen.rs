@@ -21,7 +21,7 @@ use crate::{
 };
 use std::time::Instant;
 
-pub const TITLE: &str = "CS Friends";
+pub const TITLE: &str = "Masterix Friends";
 const ROW: f32 = 22.0;
 const WHITE: u32 = u32::MAX;
 fn grey() -> u32 {
@@ -599,7 +599,7 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
         Tab::Friends => {
             // Header: who we are, and the other pages.
             let sub = if !view.connected {
-                "Connecting to CS Friends…".to_owned()
+                "Connecting to Masterix Friends…".to_owned()
             } else if view.me_code.is_empty() {
                 "Signing in…".to_owned()
             } else {
@@ -694,7 +694,7 @@ fn friends_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &Vie
         width - 64.0,
         Focus::AddCode,
         &ui.add_code,
-        "Friend code (CS-XXXXXX)",
+        "Friend code (MX-XXXXXX)",
         ui.focus == Focus::AddCode,
         false,
     );
@@ -984,14 +984,14 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
         width - 72.0,
         Focus::Motd,
         &ui.motd,
-        "{world} - hosted by {name} / CS Launcher Plus",
+        "{world} - hosted by {name} / Masterix Plus",
         ui.focus == Focus::Motd,
         false,
     );
     l.button(right - 64.0, y, 60.0, "Save", Action::SaveMotd, true);
     y += 24.0;
     l.step();
-    let icon = ["CS Launcher icon", "This world's icon", "Custom file"][ui.icon.min(2)];
+    let icon = ["Masterix icon", "This world's icon", "Custom file"][ui.icon.min(2)];
     l.text(format!("Server icon: {icon}"), grey(), left + 4.0, y + 6.0);
     l.button(right - 64.0, y, 60.0, "Change", Action::CycleIcon, true);
     y += 22.0;
@@ -1044,7 +1044,7 @@ fn voice_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View)
     } else if !vv.in_world {
         ("Join or host a world to talk", grey())
     } else if !vv.available {
-        ("This server has no CS voice", red())
+        ("This server has no Masterix voice", red())
     } else if vv.mic_problem.is_some() {
         ("Microphone unavailable", red())
     } else if vv.talking {
@@ -1056,11 +1056,11 @@ fn voice_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View)
     };
     l.text(fit(atlas, state, state_w), color, state_x, y + 8.0);
     let hint = if !vv.enabled {
-        "Proximity voice for CS Engine worlds: no account, no extra app.".to_owned()
+        "Proximity voice for Masterix Engine worlds: no account, no extra app.".to_owned()
     } else if let Some(p) = &vv.mic_problem {
         format!("{p}. Allow the microphone, then come back.")
     } else if vv.ptt {
-        "Push to talk: B, or the CS control bound to it. V opens this page.".to_owned()
+        "Push to talk: B, or the Masterix control bound to it. V opens this page.".to_owned()
     } else {
         "Open mic: sends when you speak. V opens this page.".to_owned()
     };
@@ -1643,7 +1643,7 @@ mod tests {
         let ui = Ui::default();
         let view = View {
             connected: true,
-            me_code: "CS-ABCDEF".into(),
+            me_code: "MX-ABCDEF".into(),
             me_name: "Steve".into(),
             friends: vec![Friend {
                 id: "f1".into(),

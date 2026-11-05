@@ -455,7 +455,7 @@ impl Game<'_> {
             self.cs_voice.mic_retry = Some(Instant::now());
             match Mic::open() {
                 Ok(mic) => {
-                    log::info!("CS voice: microphone open ({})", mic.device);
+                    log::info!("Masterix voice: microphone open ({})", mic.device);
                     self.cs_voice.mic = Some(mic);
                     self.cs_voice.mic_problem = None;
                 }
@@ -522,7 +522,7 @@ impl Game<'_> {
         if frames > 0
             && let Err(e) = self.native_net_send_to_server(CHANNEL, &payload)
         {
-            log::debug!("CS voice: not sent: {e}");
+            log::debug!("Masterix voice: not sent: {e}");
         }
     }
 
@@ -884,12 +884,12 @@ impl Game<'_> {
         let mut payload = vec![TO_SERVER_GROUP, op];
         payload.extend_from_slice(name.as_bytes());
         if let Err(e) = self.native_net_send_to_server(CHANNEL, &payload) {
-            log::debug!("CS voice: group request not sent: {e}");
+            log::debug!("Masterix voice: group request not sent: {e}");
         }
     }
     fn cs_voice_group_named(&mut self, op: u8, name: &str, password: &str) {
         if let Err(e) = self.native_net_send_to_server(CHANNEL, &encode_named(op, name, password)) {
-            log::debug!("CS voice: group request not sent: {e}");
+            log::debug!("Masterix voice: group request not sent: {e}");
         }
     }
     /// Create the group `name` (the voice menu), with `password` if any.
@@ -935,7 +935,7 @@ impl Game<'_> {
         let mut payload = vec![TO_SERVER_GROUP, GROUP_INVITE];
         payload.extend_from_slice(&uuid.to_be_bytes());
         if let Err(e) = self.native_net_send_to_server(CHANNEL, &payload) {
-            log::debug!("CS voice: invite not sent: {e}");
+            log::debug!("Masterix voice: invite not sent: {e}");
         }
     }
     /// Accept the invite at `index` (the voice menu): join without a password.

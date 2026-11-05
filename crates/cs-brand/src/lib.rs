@@ -9,17 +9,17 @@
 //! report always says which upstream parity level it came from.
 
 /// The engine's name as players read it.
-pub const NAME: &str = "CS Engine";
+pub const NAME: &str = "Masterix Engine";
 /// Short form for tight spaces (F3 brand, file prefixes).
-pub const SHORT: &str = "CS";
+pub const SHORT: &str = "Masterix";
 /// The maker.
-pub const VENDOR: &str = "Craft Studio";
+pub const VENDOR: &str = "AbhayTheMaster";
 /// The line under the name.
-pub const TAGLINE: &str = "Powered by Craft Studio";
+pub const TAGLINE: &str = "Powered by AbhayTheMaster";
 /// The brand reported where vanilla reports "vanilla" (F3 `(<version>/<brand>)`, server brand).
-pub const BRAND: &str = "cs-engine";
+pub const BRAND: &str = "masterix-engine";
 /// The edition word drawn under the Minecraft logo in place of "JAVA" ("CS EDITION").
-pub const EDITION: &str = "CS";
+pub const EDITION: &str = "MASTERIX";
 /// The native library (`lib<LIB>.so`, `android.app.lib_name`).
 pub const LIB: &str = "cs_engine";
 /// The name of the upstream project this engine is built on (credits, notices).
@@ -68,10 +68,10 @@ mod tests {
 
     #[test]
     fn lines_read_as_designed() {
-        assert_eq!(title_line("26.3"), format!("CS Engine {VERSION} · Minecraft Java 26.3"));
-        assert!(full_version("0.7.7").starts_with("CS Engine "));
+        assert_eq!(title_line("26.3"), format!("Masterix Engine {VERSION} · Minecraft Java 26.3"));
+        assert!(full_version("0.7.7").starts_with("Masterix Engine "));
         assert!(full_version("0.7.7").contains("core 0.7.7"));
-        assert_eq!(crash_report_title(), "---- CS Engine Crash Report ----");
+        assert_eq!(crash_report_title(), "---- Masterix Engine Crash Report ----");
         assert_eq!(LIB, "cs_engine");
         assert!(!NAME.contains("Horizon"));
     }

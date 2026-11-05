@@ -176,7 +176,7 @@ impl State {
         self.requests.iter().filter(|r| r.incoming).count()
     }
     fn note_error(&mut self, e: String) {
-        log::warn!("CS Friends: {e}");
+        log::warn!("Masterix Friends: {e}");
         self.error = Some((e, Instant::now()));
     }
 }
@@ -245,6 +245,7 @@ impl Client {
     }
     pub fn add_friend(&self, code: &str) {
         let code: String = code.trim().to_uppercase();
+        let code = code.replacen("MX-", "CS-", 1);
         if code.is_empty() {
             return;
         }
@@ -344,7 +345,7 @@ impl Client {
                 if was != f.status {
                     if f.status == "hosting" {
                         self.notices.push(Notice {
-                            title: "CS Friends".to_owned(),
+                            title: "Masterix Friends".to_owned(),
                             text: format!(
                                 "{} is hosting {}.",
                                 f.name,
@@ -354,7 +355,7 @@ impl Client {
                         });
                     } else if was == "offline" && f.status != "offline" {
                         self.notices.push(Notice {
-                            title: "CS Friends".to_owned(),
+                            title: "Masterix Friends".to_owned(),
                             text: format!("{} is online.", f.name),
                             system: false,
                         });
@@ -451,7 +452,7 @@ fn load_or_create_identity() -> Identity {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(e) = std::fs::write(&path, json.to_string()) {
-        log::warn!("CS Friends: identity not saved to {}: {e}", path.display());
+        log::warn!("Masterix Friends: identity not saved to {}: {e}", path.display());
     }
     Identity { token }
 }
@@ -534,7 +535,7 @@ fn worker(name: &str, cmds: &Receiver<Cmd>, out: &Sender<Reply>) {
                     me_id = j["id"].as_str().unwrap_or_default().to_owned();
                 }
                 Err(e) => {
-                    let _ = out.send(Reply::Error(format!("Can't reach CS Friends ({e})")));
+                    let _ = out.send(Reply::Error(format!("Can't reach Masterix Friends ({e})")));
                     next_sync = Instant::now() + Duration::from_secs(15);
                     continue;
                 }
@@ -669,7 +670,7 @@ fn worker(name: &str, cmds: &Receiver<Cmd>, out: &Sender<Reply>) {
                 let _ = out.send(Reply::Snapshot(snapshot));
             }
             Err(e) => {
-                let _ = out.send(Reply::Error(format!("CS Friends sync failed ({e})")));
+                let _ = out.send(Reply::Error(format!("Masterix Friends sync failed ({e})")));
             }
         }
         next_sync = Instant::now()
@@ -693,7 +694,7 @@ fn parse_snapshot(j: &serde_json::Value, me_id: &str) -> Snapshot {
                 .map(|f| Friend {
                     id: s(&f["id"]),
                     name: s(&f["name"]),
-                    code: s(&f["code"]),
+                    code: s(&f["code"]).replacen("CS-", "MX-", 1),
                     status: opt(&f["status"]).unwrap_or_else(|| "offline".to_owned()),
                     address: opt(&f["address"]),
                     world: opt(&f["world"]),
@@ -708,7 +709,7 @@ fn parse_snapshot(j: &serde_json::Value, me_id: &str) -> Snapshot {
                 .map(|r| Request {
                     id: s(&r["id"]),
                     name: s(&r["name"]),
-                    code: s(&r["code"]),
+                    code: s(&r["code"]).replacen("CS-", "MX-", 1),
                     incoming: r["incoming"].as_bool().unwrap_or(false),
                 })
                 .collect()
@@ -751,7 +752,7 @@ fn parse_snapshot(j: &serde_json::Value, me_id: &str) -> Snapshot {
         .unwrap_or_default();
     Snapshot {
         me_id,
-        me_code: s(&me["code"]),
+        me_code: s(&me["code"]).replacen("CS-", "MX-", 1),
         me_name: s(&me["name"]),
         friends,
         requests,
@@ -774,7 +775,7 @@ mod tests {
         )
         .unwrap();
         let s = parse_snapshot(&j, "");
-        assert_eq!(s.me_code, "CS-1");
+        assert_eq!(s.me_code, "MX-1");
         assert!(s.friends[0].hosting());
         assert!(s.requests[0].incoming);
         assert_eq!(s.invites[0].id, 5);

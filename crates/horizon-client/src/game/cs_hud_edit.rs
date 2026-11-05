@@ -379,7 +379,7 @@ impl Game<'_> {
                 if down {
                     self.cs_hud_edit = None;
                     if let Err(e) = self.begin_closing_save(true) {
-                        log::warn!("CS Engine: exit: {e}");
+                        log::warn!("Masterix Engine: exit: {e}");
                     }
                 }
                 true

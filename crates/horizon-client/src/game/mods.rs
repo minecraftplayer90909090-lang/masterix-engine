@@ -444,7 +444,7 @@ impl Game<'_> {
             if self.settings.mods.installed.iter().any(|r| r.id == id) {
                 continue;
             }
-            log::warn!("Horizon: {file}: native mod (.hnmod) cannot be loaded by CS Engine");
+            log::warn!("Horizon: {file}: native mod (.hnmod) cannot be loaded by Masterix Engine");
             self.settings.mods.installed.push(Installed {
                 id: String::new(),
                 title,

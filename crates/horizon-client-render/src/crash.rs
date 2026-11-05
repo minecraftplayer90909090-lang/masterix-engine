@@ -335,7 +335,7 @@ fn thread_name(side: &str) -> String {
 
 /// What starts the stderr line naming a saved report, the path follows: the Launch API's
 /// promise to launchers (docs/api/launch.md), so it never changes within a line of that API.
-pub const SAVED_LINE: &str = "CS Engine: crash report saved to ";
+pub const SAVED_LINE: &str = "Masterix Engine: crash report saved to ";
 
 /// Writes the report and tells where it is; the log gets the error too.
 fn deliver(home: &Path, report: Report) -> Option<PathBuf> {
@@ -346,7 +346,7 @@ fn deliver(home: &Path, report: Report) -> Option<PathBuf> {
     crate::logging::write_only(
         log::Level::Error,
         &format!(
-            "CS Engine crashed: {}\n{}",
+            "Masterix Engine crashed: {}\n{}",
             report.error,
             report
                 .stack
@@ -364,7 +364,7 @@ fn deliver(home: &Path, report: Report) -> Option<PathBuf> {
             Some(path)
         }
         Err(e) => {
-            eprintln!("CS Engine: could not save a crash report: {e}");
+            eprintln!("Masterix Engine: could not save a crash report: {e}");
             eprintln!("{}", report.text());
             None
         }
@@ -682,7 +682,7 @@ mod tests {
     fn the_report_reads_like_vanillas() {
         let text = report().text();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "---- CS Engine Crash Report ----");
+        assert_eq!(lines[0], "---- Masterix Engine Crash Report ----");
         assert!(lines[1].starts_with("// "));
         assert_eq!(lines[3], "Time: 2026-10-14 09:05:07");
         assert_eq!(lines[4], "Description: Unexpected error");
