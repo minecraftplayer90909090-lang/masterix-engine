@@ -477,7 +477,7 @@ where
                     }
                 }
             },
-            |e| log::warn!("CS voice: microphone error: {e}"),
+            |e| log::warn!("Masterix voice: microphone error: {e}"),
             None,
         )
         .map_err(|e| format!("microphone open: {e}"))

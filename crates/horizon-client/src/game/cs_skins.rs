@@ -199,7 +199,7 @@ impl super::Game<'_> {
                     "p_cape": cape_png.map(|p| horizon_client::skins::base64_encode(&p)),
                 });
                 if let Err(e) = cs_friends::rpc("cs_set_skin", &body) {
-                    log::warn!("CS skins: publish failed: {e}");
+                    log::warn!("Masterix skins: publish failed: {e}");
                 }
             })
             .ok();

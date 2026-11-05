@@ -668,11 +668,11 @@ impl Game<'_> {
                         path(&skin).as_deref(),
                         &model,
                     ) {
-                        log::warn!("CS host skin not applied: {e}");
+                        log::warn!("Masterix host skin not applied: {e}");
                     }
                     if let Err(e) = horizon_client::skins::set_offline_cape(path(&cape).as_deref())
                     {
-                        log::warn!("CS host cape not applied: {e}");
+                        log::warn!("Masterix host cape not applied: {e}");
                     }
                 }
             }
@@ -697,7 +697,7 @@ impl Game<'_> {
         };
         if horizon_client::android_runtime::host_set_geometry(geometry) {
             log::info!(
-                "CS host input: window {}x{}, render {}x{}, content origin {:?}, pointer scale {:.3}x{:.3}, focused {}",
+                "Masterix host input: window {}x{}, render {}x{}, content origin {:?}, pointer scale {:.3}x{:.3}, focused {}",
                 geometry.window[0],
                 geometry.window[1],
                 geometry.render[0],

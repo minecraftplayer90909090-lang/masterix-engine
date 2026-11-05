@@ -12,7 +12,7 @@ use crate::{
     ui,
 };
 
-pub const TITLE: &str = "CS Friends";
+pub const TITLE: &str = "Masterix Friends";
 const ROW: f32 = 22.0;
 const WHITE: u32 = u32::MAX;
 fn grey() -> u32 {
@@ -274,7 +274,7 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
     let mut overflow = None;
     // Header: who we are.
     let sub = if !view.connected {
-        "Connecting to CS Friends…".to_owned()
+        "Connecting to Masterix Friends…".to_owned()
     } else if view.me_code.is_empty() {
         "Signing in…".to_owned()
     } else {
@@ -345,7 +345,7 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
                 w: width - 64.0,
                 focus: Focus::AddCode,
                 value: ui.add_code.clone(),
-                placeholder: "Friend code (CS-XXXXXX)",
+                placeholder: "Friend code (MX-XXXXXX)",
                 focused: ui.focus == Focus::AddCode,
             });
             buttons.push(Button {
@@ -674,7 +674,7 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
                     w: width - 64.0,
                     focus: Focus::Motd,
                     value: ui.motd.clone(),
-                    placeholder: "{world} - hosted by {name} / CS Launcher Plus",
+                    placeholder: "{world} - hosted by {name} / Masterix Plus",
                     focused: ui.focus == Focus::Motd,
                 });
                 buttons.push(Button {
@@ -686,7 +686,7 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
                     active: true,
                 });
                 y += 24.0;
-                let icon = ["CS Launcher icon", "This world's icon", "Custom file"][ui.icon.min(2)];
+                let icon = ["Masterix icon", "This world's icon", "Custom file"][ui.icon.min(2)];
                 lines.push((format!("Server icon: {icon}"), grey(), left, y + 6.0));
                 buttons.push(Button {
                     x: right - 60.0,
@@ -745,20 +745,20 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
             });
             y += 24.0;
             if !vv.enabled {
-                add(&mut lines, "Built-in proximity voice chat for CS Engine worlds: talk to the players near you in a world you host or join (e4mc, LAN, a CS server). No account, no extra app.", grey(), &mut y);
+                add(&mut lines, "Built-in proximity voice chat for Masterix Engine worlds: talk to the players near you in a world you host or join (e4mc, LAN, a Masterix server). No account, no extra app.", grey(), &mut y);
             } else {
                 // Status.
                 if !vv.in_world {
-                    add(&mut lines, "Join or host a world to talk. Voice works in CS Engine worlds and servers.", grey(), &mut y);
+                    add(&mut lines, "Join or host a world to talk. Voice works in Masterix Engine worlds and servers.", grey(), &mut y);
                 } else if !vv.available {
-                    add(&mut lines, "This server doesn't carry CS voice (not a CS Engine / Horizon host).", red(), &mut y);
+                    add(&mut lines, "This server doesn't carry Masterix voice (not a Masterix Engine / Horizon host).", red(), &mut y);
                 } else if let Some(p) = &vv.mic_problem {
                     add(&mut lines, &format!("Microphone: {p}. Allow the microphone permission, then come back."), red(), &mut y);
                 } else if vv.talking {
                     let bars = (vv.level * 10.0).round() as usize;
                     add(&mut lines, &format!("Transmitting  {}{}", "|".repeat(bars.min(10)), "·".repeat(10 - bars.min(10))), green(), &mut y);
                 } else if vv.ptt {
-                    add(&mut lines, "Ready. Hold the Push to Talk key (B, or the CS control button bound to it in Key Binds). V opens this menu.", WHITE, &mut y);
+                    add(&mut lines, "Ready. Hold the Push to Talk key (B, or the Masterix control button bound to it in Key Binds). V opens this menu.", WHITE, &mut y);
                 } else {
                     add(&mut lines, "Ready. Open mic: sends when you speak.", WHITE, &mut y);
                 }
@@ -1001,7 +1001,7 @@ mod tests {
         let ui = Ui::default();
         let view = View {
             connected: true,
-            me_code: "CS-ABCDEF".into(),
+            me_code: "MX-ABCDEF".into(),
             me_name: "Steve".into(),
             friends: vec![Friend {
                 id: "f1".into(),

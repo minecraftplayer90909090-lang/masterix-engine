@@ -423,7 +423,7 @@ pub enum Item {
 pub fn rows() -> Vec<Result<Item, &'static str>> {
     use Item::*;
     vec![
-        Err("CS HUD modules"),
+        Err("Masterix HUD modules"),
         Ok(Fps),
         Ok(FpsCorner),
         Ok(FpsLows),

@@ -1302,7 +1302,7 @@ impl Game<'_> {
         host.hub.lan.shared.set_max_players(b.max_players);
         host.hub.config.max_players = b.max_players;
         log::info!(
-            "CS server branding: motd={:?} icon={has_icon} max_players={}",
+            "Masterix server branding: motd={:?} icon={has_icon} max_players={}",
             b.motd,
             b.max_players
         );
@@ -2888,7 +2888,7 @@ pub(super) struct CsServerBranding {
 /// The MOTD when none is set: the host, the world and the launcher.
 pub(super) fn cs_default_motd(name: &str, world: &str) -> String {
     // Two lines in the server list: the world and its host, then the launcher.
-    format!("{world} - hosted by {name}\nCS Launcher Plus")
+    format!("{world} - hosted by {name}\nMasterix Plus")
 }
 pub(super) fn cs_server_branding(default_motd: &str, name: &str, world: &str) -> CsServerBranding {
     let dir = std::env::current_dir().unwrap_or_default();

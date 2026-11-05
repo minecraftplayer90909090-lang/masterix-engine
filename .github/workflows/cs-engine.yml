@@ -1,6 +1,6 @@
 # CS Engine (Powered by Craft Studio) artefacts for CS Launcher Plus: libcs_engine.so (cs-host feature) + engine tables.
 # The CS Launcher Plus build downloads the "cs-engine-latest" release assets; nothing is built locally.
-name: CS Engine
+name: Masterix Engine
 on:
   push:
     branches: [main]
@@ -180,7 +180,7 @@ jobs:
           python3 - "$VERSION" <<'PY'
           import json, sys, hashlib, os
           files = {n: hashlib.sha256(open('release/'+n,'rb').read()).hexdigest() for n in sorted(os.listdir('release')) if n != 'SHA256SUMS.txt'}
-          json.dump({"schema": 1, "engine": "cs-engine", "name": "CS Engine", "tagline": "Powered by Craft Studio", "cs_engine_version": os.environ.get("CS_ENGINE_VERSION"), "lib": "libcs_engine.so", "version": sys.argv[1], "minecraft": "26.3",
+          json.dump({"schema": 1, "engine": "cs-engine", "name": "Masterix Engine", "tagline": "Powered by AbhayTheMaster", "cs_engine_version": os.environ.get("CS_ENGINE_VERSION"), "lib": "libcs_engine.so", "version": sys.argv[1], "minecraft": "26.3",
                      "commit": os.environ.get("GITHUB_SHA"), "run": os.environ.get("GITHUB_RUN_NUMBER"),
                      "feature": "cs-host", "files": files}, open('release/BUILD.json','w'), indent=2)
           PY
@@ -205,10 +205,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: cs-engine-latest
-          name: CS Engine build ${{ github.run_number }}
+          name: Masterix Engine build ${{ github.run_number }}
           prerelease: true
           body: |
-            CS Engine ${{ env.CS_ENGINE_VERSION }} (Powered by Craft Studio) for CS Launcher Plus, built from `${{ github.sha }}`.
+            Masterix Engine ${{ env.CS_ENGINE_VERSION }} (Powered by AbhayTheMaster) for Masterix Plus, built from `${{ github.sha }}`.
             Files: `libcs_engine-<abi>.so` (stripped), `*.debug` symbols, `engine-data.zip`, `cs-native-mods.json`, notices, `BUILD.json`, `SHA256SUMS.txt`.
             Built on Horizon Android (https://github.com/Vasysik/horizon-android, MIT). Minecraft resources are downloaded on the device from official sources only.
           files: release/*

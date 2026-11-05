@@ -18,7 +18,7 @@ pub const NATIVE_DIR: &str = "horizon-native-mods";
 /// Why a native mod installed in [`NATIVE_DIR`] doesn't run in this game.
 /// CS Engine: a native `.hnmod` found in the mods folder. Native mods are Rust crates that
 /// must be compiled into the engine; the shipped CS Engine cannot load them at runtime.
-pub const NATIVE_UNSUPPORTED: &str = "Native mod (.hnmod): CS Engine ships the registry's native mods built in. Install this one from CS Launcher Plus > Mods > Download instead of adding the file.";
+pub const NATIVE_UNSUPPORTED: &str = "Native mod (.hnmod): Masterix Engine ships the registry's native mods built in. Install this one from Masterix Plus > Mods > Download instead of adding the file.";
 pub const NOT_BUILT: &str = "Installed, not built into this game: build the game with it in the launcher (Settings > Native mods), then play the instance that build is in.";
 
 #[derive(Clone, Debug, Default, PartialEq)]

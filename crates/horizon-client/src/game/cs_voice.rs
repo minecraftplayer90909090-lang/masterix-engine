@@ -356,7 +356,7 @@ impl Game<'_> {
             self.cs_voice.mic_retry = Some(Instant::now());
             match Mic::open() {
                 Ok(mic) => {
-                    log::info!("CS voice: microphone open ({})", mic.device);
+                    log::info!("Masterix voice: microphone open ({})", mic.device);
                     self.cs_voice.mic = Some(mic);
                     self.cs_voice.mic_problem = None;
                 }
@@ -417,7 +417,7 @@ impl Game<'_> {
         if frames > 0
             && let Err(e) = self.native_net_send_to_server(CHANNEL, &payload)
         {
-            log::debug!("CS voice: not sent: {e}");
+            log::debug!("Masterix voice: not sent: {e}");
         }
     }
 
@@ -638,7 +638,7 @@ impl Game<'_> {
         let mut payload = vec![TO_SERVER_GROUP, op];
         payload.extend_from_slice(name.as_bytes());
         if let Err(e) = self.native_net_send_to_server(CHANNEL, &payload) {
-            log::debug!("CS voice: group request not sent: {e}");
+            log::debug!("Masterix voice: group request not sent: {e}");
         }
     }
     /// Create or join the group `name` (the voice menu).
