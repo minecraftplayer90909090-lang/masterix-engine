@@ -1,9 +1,9 @@
-//! "CS EDITION" under the classic title screen's logo (CS Engine identity).
+//! "MX EDITION" under the classic title screen's logo (Masterix identity).
 //!
 //! Vanilla's `textures/gui/title/edition.png` reads "JAVA EDITION". The engine
 //! never ships Mojang's art, so the banner is rebuilt at load time from the
 //! player's own texture: "EDITION" is kept column for column (moved left so the
-//! shorter word stays centred), and C and S are our own glyphs (the rectangles
+//! shorter word stays centred), and M and X are our own glyphs (the rectangles
 //! below; the technique is Horizon's "RUST EDITION", MIT), drawn the way the
 //! texture's letters are built (a face with darker sides and a light bottom
 //! edge, a dark extrusion under it, a black outline and a soft rim) in the
@@ -29,30 +29,33 @@ const OUTLINE: usize = 3;
 const LETTER_GAP: usize = 6;
 /// The new glyphs' face width (as "RUST"'s letters, 42 wide and 39 tall).
 const GLYPH_WIDTH: usize = 42;
-/// "JAVA" spanned columns 4..190; "CS" (two glyphs and a gap) is 90 wide, so the
+/// "JAVA" spanned columns 4..190; "MX" (two glyphs and a gap) is 90 wide, so the
 /// whole word pair moves right by half the difference and "EDITION" moves left
 /// by the other half: the banner stays centred on the logo.
 const SHIFT: usize = 48;
-/// The first face column of "CS".
+/// The first face column of "MX".
 const FIRST_FACE: usize = 4 + SHIFT;
 /// Where the moved "EDITION" starts; everything left of it is ours.
 const LETTERS_END: usize = EDITION_START - SHIFT;
 
-/// Our C: a top bar, a stem and a bottom bar, notched like the texture's letters.
-const C: &[[usize; 4]] = &[[7, 0, 42, 10], [0, 7, 11, 32], [7, 29, 42, 39]];
+/// Our M: a top bar, two stems and a middle stem, 42 wide and 39 tall.
+const M: &[[usize; 4]] = &[[0, 0, 42, 10], [0, 0, 11, 39], [31, 0, 42, 39], [16, 10, 26, 24]];
 
-/// Our S (Horizon's glyph, MIT): face rectangles `[x0, y0, x1, y1)` in texels
-/// from the face's top-left, 42 wide and 39 tall, with 11-texel stems, 10-texel
-/// bars and 7-texel notches for the rounded corners.
-const S: &[[usize; 4]] = &[
-    [7, 0, 42, 10],
-    [0, 7, 11, 19],
-    [7, 15, 35, 25],
-    [31, 21, 42, 32],
-    [0, 29, 35, 39],
+/// Our X: face rectangles `[x0, y0, x1, y1)` in texels from the face's
+/// top-left, stepping diagonally from the corners to the crossing.
+const X: &[[usize; 4]] = &[
+    [0, 0, 11, 9],
+    [31, 0, 42, 9],
+    [6, 9, 17, 16],
+    [25, 9, 36, 16],
+    [13, 16, 29, 23],
+    [6, 23, 17, 30],
+    [25, 23, 36, 30],
+    [0, 30, 11, 39],
+    [31, 30, 42, 39],
 ];
 
-/// The banner rebuilt to read "CS EDITION", or `None` when the texture is
+/// The banner rebuilt to read "MX EDITION", or `None` when the texture is
 /// not vanilla's (a resource pack's own).
 pub fn cs_edition(width: u32, height: u32, pixels: &[u8]) -> Option<Vec<u8>> {
     (fingerprint(width, height, pixels) == VANILLA).then(|| compose(pixels))
@@ -127,7 +130,7 @@ impl Palette {
 /// Faces of the new glyphs, positioned in the texture.
 fn glyph_faces() -> Vec<bool> {
     let mut face = vec![false; WIDTH * HEIGHT];
-    for (i, glyph) in [C, S].into_iter().enumerate() {
+    for (i, glyph) in [M, X].into_iter().enumerate() {
         let left = FIRST_FACE + i * (GLYPH_WIDTH + LETTER_GAP);
         for &[x0, y0, x1, y1] in glyph {
             for y in FACE_TOP + y0..FACE_TOP + y1 {
@@ -261,7 +264,7 @@ fn soften_edges(out: &mut [u8], soft: Rgba) {
     }
 }
 
-/// "CS" in place of "JAVA", "EDITION" moved left by `SHIFT`; `pixels` is a
+/// "MX" in place of "JAVA", "EDITION" moved left by `SHIFT`; `pixels` is a
 /// 512x64 RGBA banner laid out as vanilla's.
 fn compose(pixels: &[u8]) -> Vec<u8> {
     let palette = Palette::sample(pixels);
@@ -348,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn cs_replaces_java_and_edition_moves_intact() {
+    fn mx_replaces_java_and_edition_moves_intact() {
         let source = stand_in();
         let out = compose(&source);
         assert_eq!(out.len(), WIDTH * HEIGHT * 4);
@@ -357,7 +360,7 @@ mod tests {
             columns(&source, EDITION_START..WIDTH)
         );
         assert!(!out.as_chunks::<4>().0.contains(&[255, 0, 255, 255]));
-        // C and S: their strokes are faces, their notches and counters not.
+        // M and X: their strokes are faces, their gaps not.
         let lit = |x: usize, y: usize| lum(pixel(&out, x, y)) >= 100;
         let glyph = |i: usize, x: usize, y: usize| {
             lit(
@@ -365,15 +368,14 @@ mod tests {
                 FACE_TOP + y,
             )
         };
-        for (i, shape) in [C, S].into_iter().enumerate() {
+        for (i, shape) in [M, X].into_iter().enumerate() {
             for &[x0, y0, x1, y1] in shape {
                 assert!(glyph(i, (x0 + x1) / 2, (y0 + y1) / 2), "glyph {i}");
             }
         }
-        assert!(!glyph(0, 30, 24), "C's open right side");
-        assert!(!glyph(0, 2, 2), "C's rounded top-left corner");
-        assert!(!glyph(1, 2, 22), "S's lower-left notch");
-        assert!(!glyph(1, 38, 17), "S's upper-right notch");
+        assert!(!glyph(0, 13, 30), "M's open gap below the middle stem");
+        assert!(!glyph(1, 21, 4), "X's open top between the arms");
+        assert!(!glyph(1, 2, 19), "X's open left side");
         assert_soft_rim(&out);
         // Nothing below the 14 GUI rows vanilla draws, and the word gap stays open.
         assert!(out[WIDTH * 55 * 4..].iter().all(|&b| b == 0));
@@ -385,7 +387,7 @@ mod tests {
         let last = (0..WIDTH).rev().find(|&x| used(x)).unwrap();
         assert!(
             (first + last).abs_diff(WIDTH - 1) <= 4,
-            "CS EDITION spans {first}..{last}"
+            "MX EDITION spans {first}..{last}"
         );
         assert!(!used(WIDTH - 1) && !used(0));
     }
@@ -417,4 +419,4 @@ mod tests {
         edited[3] ^= 1;
         assert!(cs_edition(w, h, &edited).is_none());
     }
-}
+        }
