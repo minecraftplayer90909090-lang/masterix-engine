@@ -61,6 +61,7 @@ pub mod fire_render;
 pub mod first_person;
 pub mod flatgen;
 pub mod cs_friends;
+pub mod cs_skin_stage;
 pub mod cs_friends_screen;
 pub mod friends_screen;
 pub mod furnace;

@@ -10,7 +10,7 @@ use horizon_client::{
 };
 use horizon_client::{
     hud::HudBatch,
-    mobs::{Anim, Brain, Mob, MobType},
+    mobs::{Mob, MobType},
     mouse::Rotation,
     pose::Pose,
 };
@@ -24,11 +24,7 @@ use horizon_world::{
     registry::BlockStateId,
     world_ray::{RayBlockMode, RayFluidMode, RayWorld, clip_world},
 };
-use std::{
-    io,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use std::{io, path::Path, sync::Arc};
 
 /// `Level.clip` with `ClipContext.Block.VISUAL` and no fluids:
 /// `BlockBehaviour.getVisualShape` is the collision shape except for the
@@ -141,81 +137,10 @@ fn own_invisible(effects: &horizon_client::effects::PlayerEffects, shared_flag: 
 fn body_visible(invisible: bool, team: Option<&horizon_client::scoreboard::Team>) -> bool {
     !horizon_client::scoreboard::invisible_to(team, team, false, invisible)
 }
-/// The player's model type for each resources root it was asked for.
-static PLAYER_TYPES: Mutex<Vec<(PathBuf, Option<Arc<MobType>>)>> = Mutex::new(Vec::new());
-
 /// The player's model type (`PlayerModel` with the default skin), read once
-/// per resources root: `entity-models.json` doesn't change while the game
-/// runs, and parsing it again held every world join for about 100 ms. The
-/// world resources read it as the game starts (`load_world_rest`), so a join
-/// finds it; a resource pack change's new root is read once.
+/// per resources root: see [`horizon_client::mobs::player_type`].
 pub(super) fn player_type(root: &Path) -> Option<Arc<MobType>> {
-    let mut cache = PLAYER_TYPES.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, kind)) = cache.iter().find(|(cached, _)| cached == root) {
-        return kind.clone();
-    }
-    let kind = load_player_type(root);
-    cache.push((root.to_owned(), kind.clone()));
-    kind
-}
-/// `player_type` from the document: the model and its layers from one parse.
-fn load_player_type(root: &Path) -> Option<Arc<MobType>> {
-    let models = horizon_client::mobs::EntityModelDocument::load(root).ok()?;
-    models.model("minecraft:player#main").map(|model| {
-        Arc::new(MobType {
-            id: "minecraft:player".into(),
-            // Players render as a humanoid; the species only drives local AI.
-            species: horizon_client::mobs::Species::Zombie,
-            width: 0.6,
-            height: 1.8,
-            eye_height: 1.62,
-            category: "misc".into(),
-            max_health: 20.0,
-            speed: 0.1,
-            flying_speed: 0.02,
-            attack_damage: 1.0,
-            attack_knockback: 0.0,
-            follow_range: 0.0,
-            step_height: 0.6,
-            armor: 0.0,
-            armor_toughness: 0.0,
-            knockback_resistance: 0.0,
-            jump_strength: 0.42,
-            attributes: Default::default(),
-            gravity: 0.08,
-            safe_fall_distance: 3.0,
-            fall_damage_multiplier: 1.0,
-            water_efficiency: 0.0,
-            water_slowdown: 0.8,
-            air_speed: 0.02,
-            baby_scale: 0.5,
-            head_rot_speed: 10.0,
-            max_head_x_rot: 40.0,
-            max_head_y_rot: 75.0,
-            ambient_interval: 80,
-            flags: Default::default(),
-            model: Arc::new(model),
-            // PlayerModel's slim arms, for slim skins, and PlayerCapeModel.
-            layers: ["player_slim#main", "player#cape"]
-                .into_iter()
-                .filter_map(|key| {
-                    let model = models.model(&format!("minecraft:{key}"))?;
-                    Some((key.to_owned(), Arc::new(model)))
-                })
-                .collect(),
-            texture: "entity/player/wide/steve".into(),
-            brain: Brain::Passive,
-            anim: Anim::Humanoid { zombie_arms: false },
-            sounds: [
-                "entity.player.hurt",
-                "entity.player.hurt",
-                "entity.player.death",
-            ],
-            step_sound: None,
-            food: Arc::from([]),
-            tempt: Arc::from([]),
-        })
-    })
+    horizon_client::mobs::player_type(root)
 }
 fn wrap(d: f32) -> f32 {
     let d = d % 360.0;
@@ -1083,16 +1008,9 @@ impl Game<'_> {
     }
 }
 
-/// `Lighting.Entry.ENTITY_IN_UI` through the entity shader's
-/// `minecraft_mix_light`: the two inventory lights, (0.2, -1, 1) and
-/// (-0.2, -1, 0), with the 0.6 light power and 0.4 ambient. `normal` is the
-/// face's outward normal in the preview's screen space (x right, y down, z
-/// towards the viewer), where a face that looks up has a negative y.
+/// See [`horizon_client::cs_skin_stage::entity_in_ui_shade`].
 fn entity_in_ui_shade(normal: glam::Vec3) -> f32 {
-    const LIGHT_0: glam::Vec3 = glam::Vec3::new(0.2, -1.0, 1.0);
-    const LIGHT_1: glam::Vec3 = glam::Vec3::new(-0.2, -1.0, 0.0);
-    let light = LIGHT_0.normalize().dot(normal).max(0.0) + LIGHT_1.normalize().dot(normal).max(0.0);
-    (light * 0.6 + 0.4).min(1.0)
+    horizon_client::cs_skin_stage::entity_in_ui_shade(normal)
 }
 
 pub(super) fn player_preview_quads(

@@ -105,6 +105,8 @@ pub const SKIN_SLOTS: usize = 128;
 pub const WORLD_ICON_SLOTS: usize = 32;
 /// The atlas sprite the title screen's skin panel draws the offline skin from.
 pub const CS_TITLE_SKIN: &str = "horizon/cs-title-skin";
+/// CS Engine: the title screen's own cape slot (64x64 cape layout), next to the skin.
+pub const CS_TITLE_CAPE: &str = "horizon/cs-title-cape";
 /// Atlas slots for the pack icons on the pack screen, one per icon drawn
 /// (`PackSelectionScreen.loadPackIcon` registers a texture per pack): two lists
 /// of 36-pixel rows at GUI scale 2 on a 4K screen still fit.
@@ -393,6 +395,7 @@ impl HudAtlas {
         }
         // CS Engine: the title screen's skin panel (title.rs `draw_skin_panel`).
         images.push((CS_TITLE_SKIN.to_owned(), 64, 64, vec![0; 64 * 64 * 4]));
+        images.push((CS_TITLE_CAPE.to_owned(), 64, 64, vec![0; 64 * 64 * 4]));
         let side = PACK_ICON_SIZE as usize;
         for i in 0..PACK_ICON_SLOTS {
             images.push((

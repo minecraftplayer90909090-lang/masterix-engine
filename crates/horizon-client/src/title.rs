@@ -433,6 +433,8 @@ pub struct Title {
     splash_you: bool,
     /// CS Engine: the player's name over the skin panel (`with_user`, on the CS host).
     cs_name: Option<String>,
+    /// CS Engine: the skin panel's 3D player (`cs_skin_stage`), built on first draw.
+    cs_stage: RefCell<Option<Option<crate::cs_skin_stage::Stage>>>,
     /// The saves listed for Home, re-read every couple of seconds.
     recent: std::cell::RefCell<Option<(std::time::Instant, Vec<WorldEntry>)>>,
     /// WorldCreationGameRulesScreen, over Create New World while it is open.
@@ -674,6 +676,7 @@ impl Title {
             splash: choose_splash(&splashes, seed, (today.month(), today.day())),
             splash_you,
             cs_name: None,
+            cs_stage: RefCell::new(None),
             recent: std::cell::RefCell::new(None),
             rules: RefCell::new(None),
             onboarding_finished: false,
@@ -1401,10 +1404,18 @@ impl Title {
         Some([x0, y - 16.0, x1, y + 92.0])
     }
     /// CS Engine: the skin panel, the Essential mod's way: the player's name,
-    /// the skin's front (both layers; the launcher's offline skin, else the
-    /// default skin) and, through `buttons`, Customize under it, which opens
-    /// CS Launcher Plus's Skin & Cape dialog.
-    fn draw_skin_panel(&self, atlas: &HudAtlas, batch: &mut HudBatch, w: f32, h: f32) {
+    /// the player in 3D (the launcher's offline skin and cape, else the
+    /// default skin; `cs_skin_stage`) swaying and looking at the cursor, and,
+    /// through `buttons`, Customize under it, which opens CS Launcher Plus's
+    /// Skin & Cape dialog.
+    fn draw_skin_panel(
+        &self,
+        atlas: &HudAtlas,
+        batch: &mut HudBatch,
+        w: f32,
+        h: f32,
+        cursor: (f32, f32),
+    ) {
         let Some([x0, y0, x1, y1]) = Self::skin_panel(w, h) else {
             return;
         };
@@ -1427,8 +1438,8 @@ impl Title {
             rgba(255, 255, 255, 255),
             true,
         );
-        // The skin texture: the offline skin uploaded into its own atlas slot,
-        // else a default skin sprite.
+        // The textures: the offline skin and cape uploaded into the title's
+        // own atlas slots, else the default skin and no cape.
         let offline = crate::skins::offline_skin();
         let (sprite, slim) = match &offline {
             Some(skin) => {
@@ -1446,43 +1457,38 @@ impl Title {
             }
             None => ("entity/player/wide/steve".to_owned(), false),
         };
-        let Some(tex) = atlas.sprites.get(&sprite).copied() else {
+        let cape = crate::skins::offline_cape().and_then(|cape| {
+            let slot = crate::hud::CS_TITLE_CAPE.to_owned();
+            let rect = atlas.sprites.get(&slot)?;
+            batch.patches.push(crate::font::Patch {
+                x: (rect.u0 * atlas.width as f32).round() as u32,
+                y: (rect.v0 * atlas.height as f32).round() as u32,
+                width: 64,
+                height: 64,
+                rgba: (*cape).clone(),
+            });
+            Some(slot)
+        });
+        if !atlas.sprites.contains_key(&sprite) {
+            return;
+        }
+        let mut stage = self.cs_stage.borrow_mut();
+        let stage = stage.get_or_insert_with(|| crate::cs_skin_stage::Stage::new(&self.resources));
+        let Some(stage) = stage.as_mut() else {
             return;
         };
-        // Front view, `s` screen pixels per skin texel: head 8 wide, body 8, arms 4 (3 slim), legs 4.
-        let box_h = y1 - (y0 + 14.0) - 4.0;
-        let s = (box_h / 32.0).floor().max(1.0);
-        let total_w = (8.0 + 2.0 * 4.0) * s;
-        let left = ((x0 + x1) / 2.0 - total_w / 2.0).round();
-        let top = (y0 + 14.0 + (box_h - 32.0 * s) / 2.0).round();
-        let part = |batch: &mut HudBatch, u: f32, v: f32, pw: f32, ph: f32, x: f32, y: f32| {
-            let (du, dv) = ((tex.u1 - tex.u0) / 64.0, (tex.v1 - tex.v0) / 64.0);
-            let r = Rect {
-                u0: tex.u0 + u * du,
-                v0: tex.v0 + v * dv,
-                u1: tex.u0 + (u + pw) * du,
-                v1: tex.v0 + (v + ph) * dv,
-                w: pw as u32,
-                h: ph as u32,
-            };
-            batch.rect_uv(x, y, pw * s, ph * s, r, u32::MAX);
-        };
-        let arm = if slim { 3.0 } else { 4.0 };
-        let (bx, by) = (left + 4.0 * s, top + 8.0 * s);
-        // Base layer: head, body, right arm, left arm, right leg, left leg.
-        part(batch, 8.0, 8.0, 8.0, 8.0, bx, top);
-        part(batch, 20.0, 20.0, 8.0, 12.0, bx, by);
-        part(batch, 44.0, 20.0, arm, 12.0, bx - arm * s, by);
-        part(batch, 36.0, 52.0, arm, 12.0, bx + 8.0 * s, by);
-        part(batch, 4.0, 20.0, 4.0, 12.0, bx, by + 12.0 * s);
-        part(batch, 20.0, 52.0, 4.0, 12.0, bx + 4.0 * s, by + 12.0 * s);
-        // Overlay layer: hat, jacket, sleeves, pants.
-        part(batch, 40.0, 8.0, 8.0, 8.0, bx, top);
-        part(batch, 20.0, 36.0, 8.0, 12.0, bx, by);
-        part(batch, 44.0, 36.0, arm, 12.0, bx - arm * s, by);
-        part(batch, 52.0, 52.0, arm, 12.0, bx + 8.0 * s, by);
-        part(batch, 4.0, 36.0, 4.0, 12.0, bx, by + 12.0 * s);
-        part(batch, 4.0, 52.0, 4.0, 12.0, bx + 4.0 * s, by + 12.0 * s);
+        let seconds = self.started.elapsed().as_secs_f32();
+        let top = y0 + 14.0;
+        stage.draw(
+            atlas,
+            batch,
+            [x0 + 2.0, top, x1 - 2.0, y1 - 2.0],
+            &sprite,
+            slim,
+            cape.as_deref(),
+            seconds,
+            cursor,
+        );
     }
     fn buttons(&self, w: f32, h: f32) -> Vec<Button> {
         // The game rules draw and press their own.
@@ -1989,7 +1995,7 @@ impl Title {
             Mode::Main => {
                 draw_logo(atlas, batch, w);
                 if crate::android_runtime::host_mode() {
-                    self.draw_skin_panel(atlas, batch, w, h);
+                    self.draw_skin_panel(atlas, batch, w, h, cursor);
                 }
                 if !hide_splash && let Some(splash) = self.splash.as_deref() {
                     let tw = HudBatch::text_width(atlas, splash);

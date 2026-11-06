@@ -704,8 +704,9 @@ impl Game<'_> {
     }
 
     /// Server side: a client's frames, relayed to everyone else who can hear:
-    /// the speaker's group members anywhere (as a group voice), and the
-    /// players within range (as a proximity voice).
+    /// a group member's voice to the group's members anywhere (as a group
+    /// voice) and to nobody else; anyone else's to the players within range
+    /// (as a proximity voice, group members included).
     /// `true` when the message was voice (and is not for the mods).
     pub(super) fn cs_voice_from_client(&mut self, player: u128, channel: &str, data: &[u8]) -> bool {
         if channel != CHANNEL {
@@ -771,6 +772,11 @@ impl Game<'_> {
             }
             if members.contains(&g.uuid) {
                 group_hearers.push(g.uuid);
+                continue;
+            }
+            // Simple Voice Chat's normal group: what a member says stays in
+            // the group — players outside it don't hear it, however close.
+            if !members.is_empty() {
                 continue;
             }
             if g.dimension != dimension {

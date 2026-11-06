@@ -146,6 +146,11 @@ jobs:
           "$NDK/llvm-strip" --strip-unneeded "out/${{ matrix.abi }}/libcs_engine.so"
           "$NDK/llvm-readelf" -h "out/${{ matrix.abi }}/libcs_engine.so" | grep -E "Class|Machine"
           "$NDK/llvm-nm" -D "out/${{ matrix.abi }}/libcs_engine.so" | grep -cE "ANativeActivity_onCreate|Java_com_craftstudio_cslauncher_engine_horizon_HorizonNative_nativeInstall|Java_com_craftstudio_cslauncher_engine_horizon_HorizonNative_nativeHostSkin" | grep -qx 3 || { echo "::error::bridge symbols missing"; exit 1; }
+          E4MC=".local/ci-target/${{ matrix.target }}/$PROFILE/libcs_e4mc.so"
+          test -f "$E4MC"
+          cp "$E4MC" "out/${{ matrix.abi }}/libcs_e4mc.so"
+          "$NDK/llvm-strip" --strip-unneeded "out/${{ matrix.abi }}/libcs_e4mc.so"
+          "$NDK/llvm-nm" -D "out/${{ matrix.abi }}/libcs_e4mc.so" | grep -q "Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeStart" || { echo "::error::cs_e4mc symbols missing"; exit 1; }
           cp cs-native-mods.json "out/${{ matrix.abi }}/" 2>/dev/null || true
           ls -l "out/${{ matrix.abi }}" symbols
       # No Actions artifacts: they count against the account's 500 MB storage quota and GitHub
@@ -173,6 +178,7 @@ jobs:
         run: |
           set -e
           cp "out/${{ matrix.abi }}/libcs_engine.so" "release/libcs_engine-${{ matrix.abi }}.so"
+          cp "out/${{ matrix.abi }}/libcs_e4mc.so" "release/libcs_e4mc-${{ matrix.abi }}.so"
           cp symbols/*.debug release/
           cp cs-native-mods.json release/ 2>/dev/null || true
           VERSION=$(grep -oP "versionName '\K[^']+" packaging/android/build.gradle | head -1)

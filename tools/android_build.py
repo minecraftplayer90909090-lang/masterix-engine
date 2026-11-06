@@ -129,6 +129,9 @@ def main():
     if args.cs_host:
         features = ['--no-default-features', '--features', 'audio,cs-host'] if legacy else ['--features', 'cs-host']
     manifests = [(['-p', 'horizon-android'], features)]
+    if args.cs_host:
+        # CS Launcher Plus also loads libcs_e4mc.so (Java edition worlds through e4mc).
+        manifests.append((['-p', 'cs-e4mc-android'], []))
     environment = dict(os.environ)
     environment['PATH'] = os.pathsep.join([str(ndk / 'bin'), str(args.java_home / 'bin'), environment['PATH']])
     environment['JAVA_HOME'] = str(args.java_home)

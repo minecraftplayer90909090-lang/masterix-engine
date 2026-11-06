@@ -3959,3 +3959,82 @@ mod magic_absorb_tests {
         assert_eq!(m.health, 10.0);
     }
 }
+
+/// The player's model type for each resources root it was asked for.
+static PLAYER_TYPES: std::sync::Mutex<Vec<(std::path::PathBuf, Option<std::sync::Arc<MobType>>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The player's model type (`PlayerModel` with the default skin), read once
+/// per resources root: `entity-models.json` doesn't change while the game
+/// runs, and parsing it again held every world join for about 100 ms. The
+/// world resources read it as the game starts (`load_world_rest`), so a join
+/// finds it; a resource pack change's new root is read once. The CS Engine
+/// title screen's skin panel reads it as well (`cs_skin_stage`).
+pub fn player_type(root: &std::path::Path) -> Option<std::sync::Arc<MobType>> {
+    let mut cache = PLAYER_TYPES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, kind)) = cache.iter().find(|(cached, _)| cached == root) {
+        return kind.clone();
+    }
+    let kind = load_player_type(root);
+    cache.push((root.to_owned(), kind.clone()));
+    kind
+}
+/// `player_type` from the document: the model and its layers from one parse.
+fn load_player_type(root: &std::path::Path) -> Option<std::sync::Arc<MobType>> {
+    let models = EntityModelDocument::load(root).ok()?;
+    models.model("minecraft:player#main").map(|model| {
+        std::sync::Arc::new(MobType {
+            id: "minecraft:player".into(),
+            // Players render as a humanoid; the species only drives local AI.
+            species: Species::Zombie,
+            width: 0.6,
+            height: 1.8,
+            eye_height: 1.62,
+            category: "misc".into(),
+            max_health: 20.0,
+            speed: 0.1,
+            flying_speed: 0.02,
+            attack_damage: 1.0,
+            attack_knockback: 0.0,
+            follow_range: 0.0,
+            step_height: 0.6,
+            armor: 0.0,
+            armor_toughness: 0.0,
+            knockback_resistance: 0.0,
+            jump_strength: 0.42,
+            attributes: Default::default(),
+            gravity: 0.08,
+            safe_fall_distance: 3.0,
+            fall_damage_multiplier: 1.0,
+            water_efficiency: 0.0,
+            water_slowdown: 0.8,
+            air_speed: 0.02,
+            baby_scale: 0.5,
+            head_rot_speed: 10.0,
+            max_head_x_rot: 40.0,
+            max_head_y_rot: 75.0,
+            ambient_interval: 80,
+            flags: Default::default(),
+            model: std::sync::Arc::new(model),
+            // PlayerModel's slim arms, for slim skins, and PlayerCapeModel.
+            layers: ["player_slim#main", "player#cape"]
+                .into_iter()
+                .filter_map(|key| {
+                    let model = models.model(&format!("minecraft:{key}"))?;
+                    Some((key.to_owned(), std::sync::Arc::new(model)))
+                })
+                .collect(),
+            texture: "entity/player/wide/steve".into(),
+            brain: Brain::Passive,
+            anim: Anim::Humanoid { zombie_arms: false },
+            sounds: [
+                "entity.player.hurt",
+                "entity.player.hurt",
+                "entity.player.death",
+            ],
+            step_sound: None,
+            food: std::sync::Arc::from([]),
+            tempt: std::sync::Arc::from([]),
+        })
+    })
+}

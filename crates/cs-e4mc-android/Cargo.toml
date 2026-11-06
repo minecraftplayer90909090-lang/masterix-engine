@@ -1,0 +1,19 @@
+[package]
+name = "cs-e4mc-android"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "CS Launcher Plus: e4mc publishing for the Java edition's Open to LAN world (libcs_e4mc.so, loaded by the launcher process)"
+
+[lib]
+name = "cs_e4mc"
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-e4mc = { path = "../horizon-e4mc" }
+jni = "0.21"
+android_logger = "0.15"
+log = "0.4"
+
+[lints]
+workspace = true

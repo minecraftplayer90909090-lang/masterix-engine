@@ -403,7 +403,34 @@ pub fn draw_loading_overlay(
         batch.height,
         brand_background(dark),
     );
+    if crate::android_runtime::host_mode() {
+        draw_cs_brand(batch, atlas);
+    }
     draw_progress(batch, atlas, line, progress);
+}
+
+/// CS Engine: the studio mark where the Mojang Studios logo would be — the
+/// vendor's name large, the engine's name under it, centred over the
+/// progress line (which sits at height / 2 - 50).
+fn draw_cs_brand(batch: &mut HudBatch, atlas: &HudAtlas) {
+    let (x_center, y_center) = ((batch.width / 2.0).floor(), (batch.height / 2.0).floor());
+    let name = cs_brand::VENDOR.to_ascii_uppercase();
+    let scale = if batch.height >= 300.0 { 3.0 } else { 2.0 };
+    let tw = HudBatch::text_width(atlas, &name);
+    let y = y_center - 50.0 - 18.0 - 9.0 * scale;
+    let start = batch.vertices.len();
+    batch.text(atlas, &name, x_center - tw / 2.0, y, u32::MAX, true);
+    batch.scale_since(start, x_center, y, scale, scale);
+    let sub = cs_brand::NAME;
+    let sw = HudBatch::text_width(atlas, sub);
+    batch.text(
+        atlas,
+        sub,
+        (x_center - sw / 2.0).floor(),
+        y + 9.0 * scale + 4.0,
+        opaque(0xFFD9D9),
+        true,
+    );
 }
 
 /// The startup loading screen: the stage's line and a progress bar, centred

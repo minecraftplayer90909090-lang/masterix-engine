@@ -2,6 +2,7 @@
 exclude = ["launcher", "crates/horizon-telemetry-server", "crates/horizon-mod-registry", "third_party/wgpu-hal", "third_party/winit"]
 members = [
     "crates/cs-brand",
+    "crates/cs-e4mc-android",
     "crates/horizon-android",
     "crates/horizon-core",
     "crates/horizon-dualsense",
