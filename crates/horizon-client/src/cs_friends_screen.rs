@@ -84,6 +84,8 @@ pub enum Focus {
     AddCode,
     Chat,
     Motd,
+    /// The host page's relay address.
+    Relay,
     /// The voice page's group name.
     Group,
     /// The voice page's group password.
@@ -192,8 +194,16 @@ pub struct Ui {
     pub focus: Focus,
     /// 0 = CS Launcher icon, 1 = the world's icon, 2 = a custom file.
     pub icon: usize,
-    /// Players the published world takes, host included.
+    /// Players the published world takes, host included; 0: no limit.
     pub max_players: usize,
+    /// Who may join through the public address: 0 anyone, 1 CS friends, 2 invited players.
+    pub access: u8,
+    /// Guests may use commands (Allow Cheats).
+    pub cheats: bool,
+    /// A relay `host:port` instead of the broker's pick; empty: automatic.
+    pub relay: String,
+    /// Names invited to this world this session ("invited only" lets them in).
+    pub invited: std::collections::BTreeSet<String>,
     /// A friend's Remove was pressed once; the next press removes.
     pub confirm_remove: Option<String>,
     pub anim: Anim,
@@ -205,6 +215,7 @@ impl Ui {
             Focus::AddCode => Some(&mut self.add_code),
             Focus::Chat => Some(&mut self.chat_text),
             Focus::Motd => Some(&mut self.motd),
+            Focus::Relay => Some(&mut self.relay),
             Focus::Group => Some(&mut self.group_name),
             Focus::Password => Some(&mut self.password),
         }
@@ -215,6 +226,7 @@ impl Ui {
             Focus::AddCode => Some(&self.add_code),
             Focus::Chat => Some(&self.chat_text),
             Focus::Motd => Some(&self.motd),
+            Focus::Relay => Some(&self.relay),
             Focus::Group => Some(&self.group_name),
             Focus::Password => Some(&self.password),
         }
@@ -224,6 +236,7 @@ impl Ui {
             Focus::AddCode => 12,
             Focus::Chat => 256,
             Focus::Motd => 59,
+            Focus::Relay => 64,
             Focus::Group => 24,
             Focus::Password => 24,
             Focus::None => 0,
@@ -364,6 +377,12 @@ pub enum Action {
     CycleIcon,
     /// Player limit up (+1) or down (-1) a step.
     Players(i32),
+    /// Who may join: anyone -> friends -> invited.
+    Access,
+    /// Allow Cheats for guests on/off.
+    Cheats,
+    /// The relay field's Save.
+    SaveRelay,
     /// Voice chat on/off, push-to-talk/open mic, a slider set (0 to 1), mute a player.
     VoiceEnabled,
     VoiceMode,
@@ -1006,11 +1025,78 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
         );
         y += 2.0;
     }
+    l.panel(left - 4.0, card_top - 4.0, width + 8.0, y - card_top + 4.0);
     l.step();
-    l.text(format!("Players (you included): {}", ui.max_players.max(2)), grey(), left + 4.0, y + 6.0);
-    l.button(right - 64.0, y, 28.0, "-", Action::Players(-1), ui.max_players > 2);
-    l.button(right - 32.0, y, 28.0, "+", Action::Players(1), ui.max_players < 32);
-    y += 26.0;
+    y += 8.0;
+    // The hosting settings card: who gets in, how many, cheats, the relay.
+    let card_top = y;
+    y += 6.0;
+    l.text("World hosting settings", accent(), left + 4.0, y);
+    y += 12.0;
+    let players = match ui.max_players {
+        0 => "No limit".to_owned(),
+        n => n.max(2).to_string(),
+    };
+    l.text(format!("Players (you included): {players}"), grey(), left + 4.0, y + 6.0);
+    l.button(right - 64.0, y, 28.0, "-", Action::Players(-1), ui.max_players != 2);
+    l.button(right - 32.0, y, 28.0, "+", Action::Players(1), ui.max_players != 0);
+    y += 24.0;
+    l.step();
+    let access = ["Anyone with the address", "CS friends only", "Invited players only"][usize::from(ui.access.min(2))];
+    l.text(fit(atlas, &format!("Who can join: {access}"), width - 76.0), grey(), left + 4.0, y + 6.0);
+    l.button(right - 64.0, y, 60.0, "Change", Action::Access, true);
+    y += 24.0;
+    if ui.access == 2 {
+        let n = ui.invited.len();
+        y = l.para(
+            atlas,
+            &if n == 0 {
+                "Nobody is invited yet: Invite a friend from the Friends page or Invite All above.".to_owned()
+            } else {
+                format!("{n} invited this session.")
+            },
+            dim(),
+            left + 4.0,
+            y,
+            width - 8.0,
+        );
+        y += 2.0;
+    }
+    l.step();
+    l.text(
+        format!("Allow cheats for guests: {}", if ui.cheats { "ON" } else { "OFF" }),
+        grey(),
+        left + 4.0,
+        y + 6.0,
+    );
+    l.button(right - 64.0, y, 60.0, if ui.cheats { "Turn off" } else { "Turn on" }, Action::Cheats, true);
+    y += 24.0;
+    l.step();
+    l.text("Relay (e4mc): automatic picks the least loaded relay", grey(), left + 4.0, y);
+    y += 11.0;
+    l.field(
+        left + 4.0,
+        y,
+        width - 72.0,
+        Focus::Relay,
+        &ui.relay,
+        "Automatic (or host:port)",
+        ui.focus == Focus::Relay,
+        false,
+    );
+    l.button(right - 64.0, y, 60.0, "Save", Action::SaveRelay, true);
+    y += 24.0;
+    if y + 30.0 < bottom {
+        y = l.para(
+            atlas,
+            "The relay only carries the connection; the world runs on this device. Same-Wi-Fi players always join over LAN.",
+            dim(),
+            left + 4.0,
+            y,
+            width - 8.0,
+        );
+        y += 2.0;
+    }
     l.panel(left - 4.0, card_top - 4.0, width + 8.0, y - card_top + 4.0);
 }
 

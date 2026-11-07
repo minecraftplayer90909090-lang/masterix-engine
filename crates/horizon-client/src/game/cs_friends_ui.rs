@@ -23,8 +23,16 @@ use winit::{
 struct ServerBranding {
     motd: String,
     icon: usize,
+    /// 0: no limit.
     max_players: usize,
+    /// 0 anyone, 1 friends only, 2 invited only (`access` in the file).
+    access: u8,
+    /// Guests may use commands (Open to LAN's "Allow Cheats").
+    cheats: bool,
+    /// A relay `host:port` instead of the broker's choice; empty: automatic.
+    relay: String,
 }
+pub(super) const ACCESS_KEYS: [&str; 3] = ["anyone", "friends", "invited"];
 const ICON_FILES: [&str; 3] = ["cs-server-icon.png", "", "cs-server-icon-custom.png"];
 
 fn branding_path() -> std::path::PathBuf {
@@ -47,8 +55,14 @@ fn read_branding() -> ServerBranding {
             _ => 1,
         };
         if let Some(n) = json["max_players"].as_u64() {
-            b.max_players = (n as usize).clamp(2, 64);
+            b.max_players = if n == 0 { 0 } else { (n as usize).clamp(2, 64) };
         }
+        b.access = ACCESS_KEYS
+            .iter()
+            .position(|k| Some(*k) == json["access"].as_str())
+            .unwrap_or(0) as u8;
+        b.cheats = json["cheats"].as_bool().unwrap_or(false);
+        b.relay = json["relay"].as_str().unwrap_or_default().trim().to_owned();
     }
     b
 }
@@ -85,6 +99,9 @@ impl Game<'_> {
             self.cs_friends_ui.motd = b.motd;
             self.cs_friends_ui.icon = b.icon;
             self.cs_friends_ui.max_players = b.max_players;
+            self.cs_friends_ui.access = b.access;
+            self.cs_friends_ui.cheats = b.cheats;
+            self.cs_friends_ui.relay = b.relay;
         }
         let (status, address, world) = self.cs_presence();
         self.cs_host_status();
@@ -439,6 +456,10 @@ impl Game<'_> {
                     && let Some(client) = &self.cs_friends
                 {
                     client.invite(Some(&id), address, &view.host.world);
+                    if let Some(f) = client.state.friend(&id) {
+                        self.cs_friends_ui.invited.insert(f.name.clone());
+                    }
+                    self.e4mc_apply_policy(true);
                 }
             }
             Action::InviteAll => {
@@ -446,6 +467,10 @@ impl Game<'_> {
                     && let Some(client) = &self.cs_friends
                 {
                     client.invite(None, address, &view.host.world);
+                    for f in client.state.friends.iter().filter(|f| f.online()) {
+                        self.cs_friends_ui.invited.insert(f.name.clone());
+                    }
+                    self.e4mc_apply_policy(true);
                 }
             }
             Action::InviteJoin(id, address) => {
@@ -559,13 +584,38 @@ impl Game<'_> {
             }
             Action::VoiceInviteDismiss(i) => self.cs_voice_invite_dismiss(i),
             Action::Players(step) => {
-                // 2, 4, 6, 8, 10, 12, 16, 20, 24, 32.
-                const STEPS: [usize; 10] = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
-                let cur = ui.max_players.max(2);
-                let i = STEPS.iter().position(|&n| n >= cur).unwrap_or(STEPS.len() - 1);
+                // 2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 64, then no limit (0).
+                const STEPS: [usize; 12] = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 64, 0];
+                let cur = ui.max_players;
+                let i = if cur == 0 {
+                    STEPS.len() - 1
+                } else {
+                    STEPS.iter().position(|&n| n >= cur).unwrap_or(STEPS.len() - 2)
+                };
                 let next = (i as i32 + step).clamp(0, STEPS.len() as i32 - 1) as usize;
                 ui.max_players = STEPS[next];
                 self.cs_save_branding();
+            }
+            Action::Access => {
+                ui.access = (ui.access + 1) % 3;
+                self.cs_save_branding();
+            }
+            Action::Cheats => {
+                ui.cheats = !ui.cheats;
+                self.cs_save_branding();
+                let cheats = self.cs_friends_ui.cheats;
+                if self.lan.is_some() || self.integrated.is_some() {
+                    self.lan_apply_settings(cheats, true);
+                }
+            }
+            Action::SaveRelay => {
+                self.cs_friends_ui.focus = Focus::None;
+                self.cs_save_branding();
+                if self.e4mc.is_some() {
+                    self.system_message(Text::literal(
+                        "Relay saved: it is used the next time the world is published.",
+                    ));
+                }
             }
         }
     }
@@ -622,7 +672,10 @@ impl Game<'_> {
     fn cs_save_branding(&mut self) {
         let mut motd = self.cs_friends_ui.motd.trim().to_owned();
         motd.truncate(59 * 4);
-        let max_players = self.cs_friends_ui.max_players.clamp(2, 64);
+        let max_players = match self.cs_friends_ui.max_players {
+            0 => 0,
+            n => n.clamp(2, 64),
+        };
         let icon_file = match self.cs_friends_ui.icon {
             1 => {
                 // The world's own icon (saves/<world>/icon.png), copied so the
@@ -643,7 +696,15 @@ impl Game<'_> {
             2 => ICON_FILES[2],
             _ => ICON_FILES[0],
         };
-        let json = serde_json::json!({ "motd": motd, "icon": icon_file, "max_players": max_players });
+        let relay = self.cs_friends_ui.relay.trim().to_owned();
+        let json = serde_json::json!({
+            "motd": motd,
+            "icon": icon_file,
+            "max_players": max_players,
+            "access": ACCESS_KEYS[usize::from(self.cs_friends_ui.access.min(2))],
+            "cheats": self.cs_friends_ui.cheats,
+            "relay": relay,
+        });
         if let Err(e) = std::fs::write(branding_path(), json.to_string()) {
             self.system_message(Text::literal(format!("Couldn't save the server name: {e}")));
             return;
@@ -656,8 +717,9 @@ impl Game<'_> {
             self.cs_apply_branding()
         };
         if let Some((_, _, max)) = applied {
-            self.cs_friends_ui.max_players = max;
+            self.cs_friends_ui.max_players = if max >= super::lan::NO_PLAYER_LIMIT { 0 } else { max };
         }
+        self.e4mc_apply_policy(true);
         if icon_file != ICON_FILES[0] && ui_icon_missing(icon_file) {
             self.system_message(Text::literal(format!(
                 "Icon file {icon_file} not found in the game folder; friends see no icon until it exists."
@@ -747,6 +809,10 @@ impl Game<'_> {
                     Focus::Motd => {
                         let view = self.cs_view();
                         self.cs_friends_action(Action::SaveMotd, &view);
+                    }
+                    Focus::Relay => {
+                        let view = self.cs_view();
+                        self.cs_friends_action(Action::SaveRelay, &view);
                     }
                     Focus::Group => {
                         let view = self.cs_view();

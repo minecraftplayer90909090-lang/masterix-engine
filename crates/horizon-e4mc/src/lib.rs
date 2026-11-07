@@ -45,6 +45,46 @@ pub struct PublishConfig {
     pub relay: Option<(String, u16)>,
 }
 
+/// Who the relay lets into the world (CS Launcher Plus "World hosting
+/// settings"). The guest's login start names the player before any byte
+/// reaches the world, so a refusal costs the world nothing: the guest sees
+/// the reason on the login screen, the integrated server never hears of it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GuestPolicy {
+    /// Players the relay carries at once (None: no limit here; the world's
+    /// own player limit still applies).
+    pub max_players: Option<usize>,
+    /// None: anyone with the address. Some: only these names (compared case
+    /// insensitively) log in; everyone else is refused with `closed_reason`.
+    pub allowed: Option<std::collections::BTreeSet<String>>,
+    /// What a guest the list keeps out is told.
+    pub closed_reason: String,
+}
+
+impl GuestPolicy {
+    /// The reason a guest refused by the list sees when none was set.
+    pub const DEFAULT_CLOSED: &'static str = "This world is open to the host's friends only.";
+    /// The reason a guest over the player limit sees.
+    pub const FULL: &'static str = "The world is full.";
+
+    /// Whether `name` may log in now, else the refusal text.
+    pub fn admit(&self, name: &str, playing: usize) -> Result<(), String> {
+        if self.max_players.is_some_and(|max| playing >= max) {
+            return Err(Self::FULL.to_owned());
+        }
+        if let Some(allowed) = &self.allowed
+            && !allowed.iter().any(|n| n.eq_ignore_ascii_case(name))
+        {
+            return Err(if self.closed_reason.is_empty() {
+                Self::DEFAULT_CLOSED.to_owned()
+            } else {
+                self.closed_reason.clone()
+            });
+        }
+        Ok(())
+    }
+}
+
 /// What the game shows.
 #[derive(Clone, Debug, Default)]
 pub struct PublishState {
@@ -65,6 +105,8 @@ pub enum PublishEvent {
     Broadcast(String),
     /// A guest's stream is being carried.
     GuestJoined,
+    /// A guest was refused at the relay: who, and the reason they saw.
+    GuestRefused { name: String, reason: String },
     /// The guest's stream ended.
     GuestLeft,
     /// The session failed (text for the player).
@@ -76,6 +118,7 @@ struct Inner {
     events: Mutex<Sender<PublishEvent>>,
     state: Arc<Mutex<SessionState>>,
     guests: Arc<std::sync::atomic::AtomicUsize>,
+    policy: Arc<Mutex<GuestPolicy>>,
     stop: Arc<tokio::sync::watch::Sender<bool>>,
     stopped: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -100,6 +143,7 @@ impl Publish {
             events: Mutex::new(tx),
             state: state.clone(),
             guests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            policy: Arc::new(Mutex::new(GuestPolicy::default())),
             stop: Arc::new(stop),
             stopped: AtomicBool::new(false),
             thread: Mutex::new(None),
@@ -112,6 +156,7 @@ impl Publish {
             events: inner.events.lock().unwrap().clone(),
             state,
             guests: inner.guests.clone(),
+            policy: inner.policy.clone(),
             stop: inner.stop.clone(),
         });
         let thread = std::thread::Builder::new()
@@ -141,6 +186,24 @@ impl Publish {
     /// The guests being carried right now.
     pub fn sessions(&self) -> usize {
         self.inner.guests.load(Ordering::Relaxed)
+    }
+
+    /// Who the relay lets in from now on; guests already playing stay.
+    pub fn set_policy(&self, policy: GuestPolicy) {
+        *self
+            .inner
+            .policy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = policy;
+    }
+
+    /// The policy in force.
+    pub fn policy(&self) -> GuestPolicy {
+        self.inner
+            .policy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// End the publish: the session closes and the domain stops answering.

@@ -179,17 +179,24 @@ impl Game<'_> {
             return Err("open a singleplayer world first".into());
         }
         let opened_lan = self.lan_port().is_none() && self.friends.is_none();
+        // The hosting settings (Game Menu > Play with Friends > Host): cheats
+        // for guests, the relay, and who gets in (applied right after).
+        let cheats = self.cs_friends_ui.cheats;
+        let relay = self.cs_friends_ui.relay.clone();
         if self.lan_port().is_none() {
             self.lan_open_quiet(LanSettings {
                 port: horizon_client::lan::available_port(),
-                guest_commands: false,
+                guest_commands: cheats,
                 force_game_mode: true,
             })?;
+        } else {
+            self.lan_apply_settings(cheats, true);
         }
         let port = self.lan_port().ok_or("the world isn't open to LAN")?;
-        match e4mc_friends::Sharing::start(std::net::SocketAddr::from(([127, 0, 0, 1], port))) {
+        match e4mc_friends::Sharing::start(std::net::SocketAddr::from(([127, 0, 0, 1], port)), &relay) {
             Ok(inner) => {
                 self.e4mc = Some(E4mcSharing { inner, opened_lan });
+                self.e4mc_apply_policy(true);
                 Ok(())
             }
             Err(e) => {
@@ -215,8 +222,48 @@ impl Game<'_> {
         }
     }
 
+    /// The relay's door policy from the hosting settings: the player limit
+    /// (the host counted out), and for "friends only" / "invited only" the
+    /// names allowed. `force` recomputes even when nothing is known to have
+    /// changed; otherwise it runs cheaply once a second from the tick.
+    pub(super) fn e4mc_apply_policy(&mut self, force: bool) {
+        let Some(sharing) = self.e4mc.as_ref() else {
+            return;
+        };
+        if !force && !self.ticks.is_multiple_of(20) {
+            return;
+        }
+        let ui = &self.cs_friends_ui;
+        let max_players = match ui.max_players {
+            0 => None,
+            n => Some(n.saturating_sub(1).max(1)),
+        };
+        let allowed = match ui.access {
+            1 => Some(
+                self.cs_friends
+                    .as_ref()
+                    .map(|c| c.state.friends.iter().map(|f| f.name.clone()).collect())
+                    .unwrap_or_default(),
+            ),
+            2 => Some(ui.invited.clone()),
+            _ => None,
+        };
+        let closed_reason = match ui.access {
+            1 => "This world is open to the host's CS friends only.",
+            2 => "This world is open to invited players only.",
+            _ => "",
+        }
+        .to_owned();
+        sharing.inner.set_policy(horizon_e4mc::GuestPolicy {
+            max_players,
+            allowed,
+            closed_reason,
+        });
+    }
+
     /// e4mc's news, once a tick: the domain, relay notes, guests.
     pub(super) fn tick_e4mc(&mut self) {
+        self.e4mc_apply_policy(false);
         let Some(sharing) = self.e4mc.as_mut() else {
             return;
         };
@@ -225,9 +272,12 @@ impl Game<'_> {
             match event {
                 e4mc_friends::Event::Published(domain) => {
                     horizon_client::android_runtime::host_note_published(Some(&domain));
-                    lines.push(format!(
-                        "Your world is public: {domain} (anyone with the address can join)."
-                    ));
+                    let who = match self.cs_friends_ui.access {
+                        1 => "your CS friends can join",
+                        2 => "invited players can join",
+                        _ => "anyone with the address can join",
+                    };
+                    lines.push(format!("Your world is public: {domain} ({who})."));
                 }
                 e4mc_friends::Event::Broadcast(message) => lines.push(message),
                 e4mc_friends::Event::GuestJoined => {
@@ -235,6 +285,9 @@ impl Game<'_> {
                 }
                 e4mc_friends::Event::GuestLeft => {
                     lines.push("A public-address guest left.".to_owned())
+                }
+                e4mc_friends::Event::GuestRefused(name, reason) => {
+                    lines.push(format!("{name} tried to join and was turned away: {reason}"))
                 }
             }
         }

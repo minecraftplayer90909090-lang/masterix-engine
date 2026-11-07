@@ -112,6 +112,68 @@ pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeGue
     publish(handle).map_or(0, |p| p.sessions() as jint)
 }
 
+/// Who the relay lets in from now on (CS Launcher's World hosting settings):
+/// `max_players` guests at once (0: no limit here), and, when `allowed` is
+/// not null, only the names it lists (newline separated), others told
+/// `reason`. Guests already playing stay.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeSetPolicy(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    max_players: jint,
+    allowed: JString,
+    reason: JString,
+) {
+    let Some(publish) = publish(handle) else {
+        return;
+    };
+    let mut text = |s: &JString| -> Option<String> {
+        if s.is_null() {
+            None
+        } else {
+            env.get_string(s).ok().map(Into::into)
+        }
+    };
+    let allowed = text(&allowed).map(|list| {
+        list.lines()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+            .collect()
+    });
+    let closed_reason = text(&reason).unwrap_or_default();
+    publish.set_policy(horizon_e4mc::GuestPolicy {
+        max_players: usize::try_from(max_players).ok().filter(|&n| n > 0),
+        allowed,
+        closed_reason,
+    });
+}
+
+/// What happened since the last poll that the player should hear of: one
+/// line per refused guest (`name\treason`), newline separated; null when nothing.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativePoll(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jstring {
+    let lines: Vec<String> = publish(handle)
+        .map(|p| {
+            p.poll()
+                .into_iter()
+                .filter_map(|e| match e {
+                    horizon_e4mc::PublishEvent::GuestRefused { name, reason } => {
+                        Some(format!("{name}\t{reason}"))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    string_out(&mut env, (!lines.is_empty()).then(|| lines.join("\n")))
+}
+
 /// The error of the last failed `nativeStart`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeError(

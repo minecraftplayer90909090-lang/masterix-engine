@@ -2890,6 +2890,8 @@ pub(super) fn cs_default_motd(name: &str, world: &str) -> String {
     // Two lines in the server list: the world and its host, then the launcher.
     format!("{world} - hosted by {name}\nMasterix Plus")
 }
+/// The player limit a world without one runs with (`max_players: 0`).
+pub(super) const NO_PLAYER_LIMIT: usize = 10_000;
 pub(super) fn cs_server_branding(default_motd: &str, name: &str, world: &str) -> CsServerBranding {
     let dir = std::env::current_dir().unwrap_or_default();
     let mut motd = default_motd.to_owned();
@@ -2910,7 +2912,8 @@ pub(super) fn cs_server_branding(default_motd: &str, name: &str, world: &str) ->
             icon = dir.join(i);
         }
         if let Some(n) = json["max_players"].as_u64() {
-            max_players = (n as usize).clamp(2, 64);
+            // 0: no limit (the hub still needs a number; nobody brings 10,000 friends).
+            max_players = if n == 0 { NO_PLAYER_LIMIT } else { (n as usize).clamp(2, 64) };
         }
     }
     // ServerStatus.Favicon: a PNG the client decodes as 64x64; anything else is dropped

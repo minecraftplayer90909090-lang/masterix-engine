@@ -27,6 +27,8 @@ pub enum Event {
     GuestJoined,
     /// The guest's stream ended.
     GuestLeft,
+    /// A guest was turned away at the relay (the hosting settings): who and why.
+    GuestRefused(String, String),
 }
 
 pub struct Sharing {
@@ -37,15 +39,18 @@ pub struct Sharing {
 }
 
 impl Sharing {
-    /// Start publishing the world already open to LAN on `lan`.
-    pub fn start(lan: std::net::SocketAddr) -> Result<Sharing, String> {
+    /// Start publishing the world already open to LAN on `lan`. `relay` is a
+    /// `host:port` the player chose (the hosting settings); empty or
+    /// malformed, the `E4MC_RELAY` variable, then the broker's choice.
+    pub fn start(lan: std::net::SocketAddr, relay: &str) -> Result<Sharing, String> {
+        let parse = |relay: &str| {
+            let (host, port) = relay.trim().rsplit_once(':')?;
+            Some((host.to_owned(), port.parse().ok()?))
+        };
         Ok(Sharing {
             publish: Some(horizon_e4mc::Publish::start(horizon_e4mc::PublishConfig {
                 lan,
-                relay: std::env::var("E4MC_RELAY").ok().and_then(|relay| {
-                    let (host, port) = relay.rsplit_once(':')?;
-                    Some((host.to_owned(), port.parse().ok()?))
-                }),
+                relay: parse(relay).or_else(|| std::env::var("E4MC_RELAY").ok().and_then(|r| parse(&r))),
             })?),
             copied: None,
             problem_shown: false,
@@ -72,9 +77,21 @@ impl Sharing {
                 horizon_e4mc::PublishEvent::Broadcast(message) => Some(Event::Broadcast(message)),
                 horizon_e4mc::PublishEvent::GuestJoined => Some(Event::GuestJoined),
                 horizon_e4mc::PublishEvent::GuestLeft => Some(Event::GuestLeft),
+                horizon_e4mc::PublishEvent::GuestRefused { name, reason } => {
+                    Some(Event::GuestRefused(name, reason))
+                }
                 horizon_e4mc::PublishEvent::Problem(_) => None,
             })
             .collect()
+    }
+
+    /// Who the relay lets in from now on.
+    pub fn set_policy(&self, policy: horizon_e4mc::GuestPolicy) {
+        if let Some(publish) = &self.publish
+            && publish.policy() != policy
+        {
+            publish.set_policy(policy);
+        }
     }
 
     /// What the screen shows.

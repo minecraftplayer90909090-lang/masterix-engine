@@ -48,6 +48,7 @@ pub(crate) struct Shared {
     pub events: Sender<crate::PublishEvent>,
     pub state: Arc<Mutex<SessionState>>,
     pub guests: Arc<AtomicUsize>,
+    pub policy: Arc<Mutex<crate::GuestPolicy>>,
     pub stop: Arc<watch::Sender<bool>>,
 }
 
@@ -281,21 +282,184 @@ impl Drop for GuestGuard {
     }
 }
 
+/// How long a guest has to say who they are before the stream is dropped.
+const OPENING_TIMEOUT: Duration = Duration::from_secs(10);
+/// A handshake and a login start never need more (a 255-char name, a
+/// 255-char host): anything longer is not a Minecraft client.
+const OPENING_LIMIT: usize = 4096;
+
+/// What a guest's first bytes are.
+enum Opening {
+    /// A status ping (the server list): passed through, never counted.
+    Status,
+    /// A login (or a transfer) by this player name.
+    Login(String),
+    /// Not a Minecraft handshake.
+    Other,
+}
+
+fn read_varint(buf: &[u8], pos: &mut usize) -> Option<i32> {
+    let mut value = 0i32;
+    for i in 0..5 {
+        let b = *buf.get(*pos)?;
+        *pos += 1;
+        value |= i32::from(b & 0x7F) << (7 * i);
+        if b & 0x80 == 0 {
+            return Some(value);
+        }
+    }
+    None
+}
+fn write_varint(mut v: u32, out: &mut Vec<u8>) {
+    loop {
+        let b = (v & 0x7F) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            return;
+        }
+        out.push(b | 0x80);
+    }
+}
+fn read_string(buf: &[u8], pos: &mut usize) -> Option<String> {
+    let len = usize::try_from(read_varint(buf, pos)?).ok()?;
+    let bytes = buf.get(*pos..*pos + len)?;
+    *pos += len;
+    String::from_utf8(bytes.to_vec()).ok()
+}
+/// The next framed packet: (id, body). None until the bytes are all there.
+fn take_packet(buf: &[u8], pos: &mut usize) -> Option<(i32, Vec<u8>)> {
+    let mut p = *pos;
+    let len = usize::try_from(read_varint(buf, &mut p).filter(|&l| l > 0)?).ok()?;
+    let body = buf.get(p..p + len)?;
+    let mut q = 0;
+    let id = read_varint(body, &mut q)?;
+    *pos = p + len;
+    Some((id, body[q..].to_vec()))
+}
+
+/// Parse what `buf` holds so far: None while more bytes are needed.
+fn parse_opening(buf: &[u8]) -> Option<Opening> {
+    let mut pos = 0;
+    // Before the whole handshake is in: a first packet that is not id 0 is
+    // not a Minecraft client (an HTTP probe, say), no need to wait for it.
+    {
+        let mut p = 0;
+        match read_varint(buf, &mut p) {
+            Some(len) if len <= 0 => return Some(Opening::Other),
+            Some(_) if buf.get(p).is_some_and(|&id| id != 0) => return Some(Opening::Other),
+            _ => {}
+        }
+    }
+    let (id, body) = take_packet(buf, &mut pos)?;
+    if id != 0 {
+        return Some(Opening::Other);
+    }
+    let mut p = 0;
+    let _protocol = read_varint(&body, &mut p)?;
+    let _host = read_string(&body, &mut p)?;
+    if body.len() < p + 2 {
+        return Some(Opening::Other);
+    }
+    p += 2;
+    match read_varint(&body, &mut p) {
+        Some(1) => Some(Opening::Status),
+        Some(2 | 3) => {
+            let (id, body) = take_packet(buf, &mut pos)?;
+            if id != 0 {
+                return Some(Opening::Other);
+            }
+            let mut p = 0;
+            let name = read_string(&body, &mut p)?;
+            Some(Opening::Login(name))
+        }
+        _ => Some(Opening::Other),
+    }
+}
+
+/// Read the guest's opening packets into `buf` (kept to replay to the world).
+async fn read_opening(recv: &mut RecvStream, buf: &mut Vec<u8>) -> Opening {
+    let read = async {
+        let mut chunk = [0u8; 1024];
+        loop {
+            if let Some(opening) = parse_opening(buf) {
+                return opening;
+            }
+            if buf.len() > OPENING_LIMIT {
+                return Opening::Other;
+            }
+            match recv.read(&mut chunk).await {
+                Ok(Some(n)) => buf.extend_from_slice(&chunk[..n]),
+                _ => return Opening::Other,
+            }
+        }
+    };
+    tokio::time::timeout(OPENING_TIMEOUT, read)
+        .await
+        .unwrap_or(Opening::Other)
+}
+
+/// A login-state disconnect with `reason` (ClientboundLoginDisconnectPacket:
+/// the text as JSON, every version alike).
+fn login_disconnect(reason: &str) -> Vec<u8> {
+    let json = serde_json::json!({ "text": reason, "color": "red" }).to_string();
+    let mut body = vec![0u8];
+    write_varint(json.len() as u32, &mut body);
+    body.extend_from_slice(json.as_bytes());
+    let mut out = Vec::with_capacity(body.len() + 3);
+    write_varint(body.len() as u32, &mut out);
+    out.extend_from_slice(&body);
+    out
+}
+
 /// One guest: the relay opened a stream, bridge it to the world's port
 /// until either side ends it. Half-closes carry through: a guest's EOF
-/// reaches the server and the server's EOF reaches the guest.
+/// reaches the server and the server's EOF reaches the guest. A login is
+/// held at the door first: the policy says who gets in, status pings pass
+/// without counting as guests.
 async fn bridge(shared: Arc<Shared>, mut send: SendStream, mut recv: RecvStream) {
-    shared.guests.fetch_add(1, Ordering::Relaxed);
-    shared.state.lock().unwrap().guests += 1;
-    shared.emit(crate::PublishEvent::GuestJoined);
-    let _guard = GuestGuard {
-        shared: shared.clone(),
+    let mut opening = Vec::new();
+    let _guard = match read_opening(&mut recv, &mut opening).await {
+        Opening::Status => None,
+        Opening::Other => {
+            let _ = send.finish();
+            return;
+        }
+        Opening::Login(name) => {
+            let playing = shared.guests.load(Ordering::Relaxed);
+            let verdict = shared
+                .policy
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .admit(&name, playing);
+            if let Err(reason) = verdict {
+                log::info!("e4mc: refused {name}: {reason}");
+                let _ = send.write_all(&login_disconnect(&reason)).await;
+                let _ = send.finish();
+                // The relay delivers what was written before the stream
+                // closes; a moment lets the client read it.
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                shared.emit(crate::PublishEvent::GuestRefused { name, reason });
+                return;
+            }
+            shared.guests.fetch_add(1, Ordering::Relaxed);
+            shared.state.lock().unwrap().guests += 1;
+            shared.emit(crate::PublishEvent::GuestJoined);
+            Some(GuestGuard {
+                shared: shared.clone(),
+            })
+        }
     };
     let result = match TcpStream::connect(shared.config.lan).await {
         Ok(server) => {
             let (mut server_read, mut server_write) = server.into_split();
             let to_server = async {
-                let copied = tokio::io::copy(&mut recv, &mut server_write).await;
+                let copied = match server_write.write_all(&opening).await {
+                    Ok(()) => tokio::io::copy(&mut recv, &mut server_write)
+                        .await
+                        .map(|n| n + opening.len() as u64),
+                    Err(e) => Err(e),
+                };
                 let _ = server_write.shutdown().await;
                 copied
             };
@@ -314,5 +478,60 @@ async fn bridge(shared: Arc<Shared>, mut send: SendStream, mut recv: RecvStream)
     };
     if let Err(e) = result {
         log::info!("e4mc: a guest's bridge ended: {e}");
+    }
+}
+
+#[cfg(test)]
+mod opening_tests {
+    use super::*;
+
+    fn packet(id: u8, body: &[u8]) -> Vec<u8> {
+        let mut inner = vec![id];
+        inner.extend_from_slice(body);
+        let mut out = Vec::new();
+        write_varint(inner.len() as u32, &mut out);
+        out.extend_from_slice(&inner);
+        out
+    }
+    fn string(s: &str, out: &mut Vec<u8>) {
+        write_varint(s.len() as u32, out);
+        out.extend_from_slice(s.as_bytes());
+    }
+    fn handshake(next: u8) -> Vec<u8> {
+        let mut body = Vec::new();
+        write_varint(773, &mut body);
+        string("abc.e4mc.link", &mut body);
+        body.extend_from_slice(&25565u16.to_be_bytes());
+        body.push(next);
+        packet(0, &body)
+    }
+
+    #[test]
+    fn a_login_names_the_player_and_a_ping_passes() {
+        let mut bytes = handshake(2);
+        let mut login = Vec::new();
+        string("Steve", &mut login);
+        login.extend_from_slice(&[0; 16]);
+        bytes.extend(packet(0, &login));
+        assert!(matches!(parse_opening(&bytes), Some(Opening::Login(n)) if n == "Steve"));
+        // Half a login start: wait for more.
+        assert!(parse_opening(&bytes[..bytes.len() - 10]).is_none());
+        assert!(matches!(parse_opening(&handshake(1)), Some(Opening::Status)));
+        assert!(matches!(parse_opening(b"GET / HTTP/1.1\r\n"), Some(Opening::Other)));
+    }
+
+    #[test]
+    fn the_policy_keeps_the_list_and_the_limit() {
+        let mut policy = crate::GuestPolicy {
+            max_players: Some(2),
+            ..Default::default()
+        };
+        assert!(policy.admit("Alex", 1).is_ok());
+        assert_eq!(policy.admit("Alex", 2), Err(crate::GuestPolicy::FULL.to_owned()));
+        policy.allowed = Some(["Steve".to_owned()].into_iter().collect());
+        assert!(policy.admit("steve", 0).is_ok());
+        assert!(policy.admit("Alex", 0).is_err());
+        let d = login_disconnect("no");
+        assert_eq!(d[1], 0, "login disconnect is packet 0");
     }
 }

@@ -38,7 +38,14 @@ pub(super) struct FnState {
     next_seq: u64,
     /// A dedicated server's `function-permission-level`.
     pub permission: Option<u8>,
+    /// CS Engine diagnostics: the (function, message) failures already
+    /// written to `cs-datapack-errors.log`, so each is reported once.
+    noted: BTreeSet<(String, String)>,
 }
+/// How many distinct failures the log keeps per world open.
+const NOTED_LIMIT: usize = 400;
+/// The file in the world folder that lists the data packs' failing commands.
+pub const ERROR_LOG: &str = "cs-datapack-errors.log";
 /// What a function reported through `return`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Outcome {
@@ -175,8 +182,18 @@ impl Game<'_> {
             )
             .collect();
         let store = DataStore::load(&packs);
+        // A fresh log for this load: what failed to parse, then what fails to run.
+        self.fns.noted.clear();
+        let header = format!(
+            "# CS Engine data pack diagnostics\n# packs: {}\n# {} functions, {} function tags\n",
+            stack.enabled.join(", "),
+            store.functions.len(),
+            store.function_tags.len()
+        );
+        let _ = std::fs::write(self.world_root.join(ERROR_LOG), header);
         for (id, e) in &store.errors {
             log::warn!("Horizon: failed to load function {id}: {e}");
+            self.note_function_failure(id, "<load>", &format!("failed to load: {e}"));
         }
         self.fns.store = store;
         self.sync_function_registries();
@@ -353,7 +370,16 @@ impl Game<'_> {
             ..source
         };
         for line in lines {
-            let _ = self.execute_line(&line, inner);
+            if let Err(e) = self.execute_line(&line, inner) {
+                // Vanilla swallows these (a function's failing line is silent);
+                // CS Engine keeps them in the world's diagnostics log so a
+                // broken map can be explained from the device.
+                let message = match e.key.as_str() {
+                    "" => e.message.plain(),
+                    key => format!("{key}: {}", e.message.plain()),
+                };
+                self.note_function_failure(&f.id, &line, &message);
+            }
             if self.exec.returned.is_some() {
                 break;
             }
@@ -369,6 +395,25 @@ impl Game<'_> {
             Some(Some(v)) => Outcome::Value(v),
             Some(None) => Outcome::Fail,
         })
+    }
+    /// Write a function line's failure to the world's diagnostics log, once
+    /// per (function, message); the log and logcat both get it.
+    fn note_function_failure(&mut self, id: &str, line: &str, message: &str) {
+        if self.fns.noted.len() >= NOTED_LIMIT {
+            return;
+        }
+        if !self.fns.noted.insert((id.to_owned(), message.to_owned())) {
+            return;
+        }
+        log::warn!("CS datapack: {id}: `{line}` -> {message}");
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(self.world_root.join(ERROR_LOG))
+        {
+            let _ = writeln!(file, "[{id}] {line}\n    -> {message}");
+        }
     }
     /// The functions a `FunctionArgument` names: a function or a tag.
     pub(in crate::game) fn functions_named(&mut self, name: &str) -> R<Vec<Function>> {

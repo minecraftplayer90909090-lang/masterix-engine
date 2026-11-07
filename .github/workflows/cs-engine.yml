@@ -80,6 +80,7 @@ jobs:
       - name: cargo test
         run: |
           cargo test -p cs-brand -p horizon-core
+          cargo test -p horizon-e4mc --lib -- opening_tests
           cargo test -p horizon-client-render --lib -- title_edition crash skins:: cs_voice::
 
   build:
