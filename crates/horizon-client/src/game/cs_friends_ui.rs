@@ -408,6 +408,12 @@ impl Game<'_> {
             Action::Focus(focus) => ui.focus = focus,
             Action::Tab(tab) => ui.go(tab),
             Action::Scroll(by) => {
+                let page = screen::page_scroll_range(&self.gui.atlas, self.gui_size(), &self.cs_friends_ui, view);
+                if page > 0.0 {
+                    let ui = &mut self.cs_friends_ui;
+                    ui.page_scroll = (ui.page_scroll + by as f32 * screen::PAGE_STEP * 2.0).clamp(0.0, page);
+                    return;
+                }
                 let range = screen::scroll_range(&self.gui.atlas, self.gui_size(), &self.cs_friends_ui, view);
                 let ui = &mut self.cs_friends_ui;
                 ui.scroll = (ui.scroll + by).clamp(0, range);
@@ -863,6 +869,13 @@ impl Game<'_> {
             return;
         }
         let view = self.cs_view();
+        let page = screen::page_scroll_range(&self.gui.atlas, self.gui_size(), &self.cs_friends_ui, &view);
+        if page > 0.0 {
+            // A finger drag arrives as wheel notches (the launcher's GUI scroller).
+            let ui = &mut self.cs_friends_ui;
+            ui.page_scroll = (ui.page_scroll - d * screen::PAGE_STEP).clamp(0.0, page);
+            return;
+        }
         let range = screen::scroll_range(&self.gui.atlas, self.gui_size(), &self.cs_friends_ui, &view);
         let ui = &mut self.cs_friends_ui;
         ui.scroll = (ui.scroll - d.signum() as i32).clamp(0, range);

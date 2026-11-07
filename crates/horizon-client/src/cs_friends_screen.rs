@@ -178,6 +178,8 @@ pub struct Ui {
     pub tab: Tab,
     /// Rows scrolled past in the current list.
     pub scroll: i32,
+    /// GUI pixels the Host page is scrolled down by (it is a long form, not a list).
+    pub page_scroll: f32,
     pub add_code: String,
     /// The friend whose conversation is open.
     pub chat_with: Option<String>,
@@ -249,6 +251,7 @@ impl Ui {
         }
         self.tab = tab;
         self.scroll = 0;
+        self.page_scroll = 0.0;
         self.focus = Focus::None;
         self.join_target = None;
         self.inviting = false;
@@ -476,11 +479,15 @@ struct Layout {
     marks: Vec<Placed>,
     /// Rows the list has and rows that fit (for the scroll arrows).
     overflow: Option<(i32, i32)>,
+    /// A pixel-scrolled page: how far it can scroll down.
+    page_overflow: Option<f32>,
     /// The voice switch's hit box (a tap on it toggles voice chat).
     toggle: Option<[f32; 4]>,
     /// The settle-in lag stamped on what is added next.
     delay: f32,
 }
+/// Where a layout stood before a page was added (for `scroll_page`).
+struct PageMark(usize, usize, usize, usize, usize, usize);
 impl Layout {
     fn new() -> Self {
         Self {
@@ -491,8 +498,90 @@ impl Layout {
             panels: Vec::new(),
             marks: Vec::new(),
             overflow: None,
+            page_overflow: None,
             toggle: None,
             delay: 0.0,
+        }
+    }
+    fn page_mark(&self) -> PageMark {
+        PageMark(
+            self.lines.len(),
+            self.buttons.len(),
+            self.fields.len(),
+            self.sliders.len(),
+            self.panels.len(),
+            self.marks.len(),
+        )
+    }
+    /// Scroll what was added since `mark` (a page laid out from `top` as if
+    /// it had all the room) up by `scroll` pixels, and clip it to
+    /// `top..bottom`: whole elements only, so nothing half shows. `content`
+    /// is the page's full height; the page remembers how far it can go.
+    fn scroll_page(&mut self, mark: PageMark, top: f32, bottom: f32, content: f32, scroll: f32) {
+        let max = (content - (bottom - top)).max(0.0);
+        let dy = scroll.clamp(0.0, max);
+        self.page_overflow = Some(max);
+        let inside = |y: f32, h: f32| y >= top - 0.5 && y + h <= bottom + 0.5;
+        let PageMark(l, b, f, s, p, m) = mark;
+        for line in &mut self.lines[l..] {
+            line.y -= dy;
+        }
+        let kept: Vec<Line> = self.lines.drain(l..).filter(|t| inside(t.y, 9.0)).collect();
+        self.lines.extend(kept);
+        for e in &mut self.buttons[b..] {
+            e.y -= dy;
+        }
+        let kept: Vec<Button> = self.buttons.drain(b..).filter(|e| inside(e.y, 20.0)).collect();
+        self.buttons.extend(kept);
+        for e in &mut self.fields[f..] {
+            e.y -= dy;
+        }
+        let kept: Vec<Field> = self.fields.drain(f..).filter(|e| inside(e.y, 20.0)).collect();
+        self.fields.extend(kept);
+        for e in &mut self.sliders[s..] {
+            e.y -= dy;
+        }
+        let kept: Vec<Slider> = self.sliders.drain(s..).filter(|e| inside(e.y, 20.0)).collect();
+        self.sliders.extend(kept);
+        // Cards clip to the page instead of vanishing.
+        let kept: Vec<Panel> = self
+            .panels
+            .drain(p..)
+            .filter_map(|mut e| {
+                e.y -= dy;
+                let y0 = e.y.max(top - 4.0);
+                let y1 = (e.y + e.h).min(bottom + 4.0);
+                (y1 - y0 > 8.0).then(|| {
+                    e.y = y0;
+                    e.h = y1 - y0;
+                    e
+                })
+            })
+            .collect();
+        self.panels.extend(kept);
+        let kept: Vec<Placed> = self
+            .marks
+            .drain(m..)
+            .filter_map(|mut e| {
+                let y = match &mut e.mark {
+                    Mark::Speaking { y, .. }
+                    | Mark::Dot { y, .. }
+                    | Mark::Lock { y, .. }
+                    | Mark::Toggle { y, .. }
+                    | Mark::Orb { y, .. } => {
+                        *y -= dy;
+                        *y
+                    }
+                };
+                inside(y - 4.0, 8.0).then_some(e)
+            })
+            .collect();
+        self.marks.extend(kept);
+        if let Some(t) = &mut self.toggle {
+            t[1] -= dy;
+            if !inside(t[1], t[3]) {
+                self.toggle = None;
+            }
         }
     }
     /// The next elements lag one step more.
@@ -678,8 +767,20 @@ fn layout(atlas: &HudAtlas, (w, h): (f32, f32), ui: &Ui, view: &View) -> Layout 
     match ui.tab {
         Tab::Friends => friends_page(atlas, &mut l, &frame, ui, view),
         Tab::Chat => chat_page(atlas, &mut l, &frame, ui, view),
-        Tab::Host => host_page(atlas, &mut l, &frame, ui, view),
+        Tab::Host => {
+            let mark = l.page_mark();
+            let content = host_page(atlas, &mut l, &frame, ui, view);
+            l.scroll_page(mark, top, bottom, content, ui.page_scroll);
+        }
         Tab::Voice => voice_page(atlas, &mut l, &frame, ui, view),
+    }
+    // Scroll arrows for a long page (a finger drag scrolls it too).
+    if let Some(max) = l.page_overflow
+        && max > 0.0
+    {
+        let at = ui.page_scroll.clamp(0.0, max);
+        l.button(right + 2.0, top, 16.0, "▲", Action::Scroll(-1), at > 0.0);
+        l.button(right + 2.0, bottom - 20.0, 16.0, "▼", Action::Scroll(1), at < max);
     }
     // Scroll arrows for long lists.
     if let Some((total, fit_rows)) = l.overflow {
@@ -889,21 +990,33 @@ fn chat_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
             let input_y = bottom - 20.0;
             let area_top = top + 16.0;
             l.panel(left - 4.0, area_top - 4.0, width + 8.0, input_y - area_top);
-            let mut rendered: Vec<(String, u32)> = Vec::new();
+            // Each line may carry a Join button (a world invite sent in the chat).
+            let mut rendered: Vec<(String, u32, Option<String>)> = Vec::new();
             for m in &view.chat {
                 let prefix = if m.mine { "You: " } else { "" };
                 let color = if m.mine { grey() } else { WHITE };
-                for line in wrap(&format!("{prefix}{}", m.body), width, atlas) {
-                    rendered.push((line, color));
+                let text_width = if m.invite.is_some() && !m.mine { width - 68.0 } else { width };
+                let mut join = if m.mine { None } else { m.invite.clone() };
+                let lines = wrap(&format!("{prefix}{}", m.body), text_width, atlas);
+                for line in lines {
+                    rendered.push((line, color, join.take()));
+                }
+                if m.invite.is_some() && !m.mine {
+                    // Room for the button's lower half.
+                    rendered.push((String::new(), color, None));
                 }
             }
             if rendered.is_empty() {
-                rendered.push((format!("Say hi to {name}."), dim()));
+                rendered.push((format!("Say hi to {name}."), dim(), None));
             }
             let fit_lines = ((input_y - 8.0 - area_top) / 10.0).floor().max(1.0) as usize;
             let start = rendered.len().saturating_sub(fit_lines);
-            for (i, (line, color)) in rendered.into_iter().skip(start).enumerate() {
-                l.text(line, color, left, area_top + i as f32 * 10.0);
+            for (i, (line, color, join)) in rendered.into_iter().skip(start).enumerate() {
+                let y = area_top + i as f32 * 10.0;
+                l.text(line, color, left, y);
+                if let Some(address) = join {
+                    l.button(right - 60.0, y - 2.0, 60.0, "Join", Action::Join(address), true);
+                }
             }
             l.step();
             l.field(left, input_y, width - 64.0, Focus::Chat, &ui.chat_text, "Message…", ui.focus == Focus::Chat, false);
@@ -912,13 +1025,15 @@ fn chat_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
     }
 }
 
-fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) {
+/// The Host page, laid out from `top` with all the room it wants; returns
+/// its height (the caller scrolls and clips it).
+fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) -> f32 {
     let Frame {
         left,
         right,
         width,
         top,
-        bottom,
+        ..
     } = *f;
     let hv = &view.host;
     let mut y = top;
@@ -987,7 +1102,7 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
     l.panel(left - 4.0, card_top - 4.0, width + 8.0, y - card_top + 4.0);
     l.step();
     if !hv.in_world {
-        return;
+        return y - top;
     }
     y += 8.0;
     // The server card: what friends see.
@@ -1014,7 +1129,7 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
     l.text(format!("Server icon: {icon}"), grey(), left + 4.0, y + 6.0);
     l.button(right - 64.0, y, 60.0, "Change", Action::CycleIcon, true);
     y += 22.0;
-    if ui.icon == 2 && y + 44.0 < bottom {
+    if ui.icon == 2 {
         y = l.para(
             atlas,
             "Custom: a 64x64 cs-server-icon-custom.png in this profile's game folder.",
@@ -1086,18 +1201,17 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
     );
     l.button(right - 64.0, y, 60.0, "Save", Action::SaveRelay, true);
     y += 24.0;
-    if y + 30.0 < bottom {
-        y = l.para(
-            atlas,
-            "The relay only carries the connection; the world runs on this device. Same-Wi-Fi players always join over LAN.",
-            dim(),
-            left + 4.0,
-            y,
-            width - 8.0,
-        );
-        y += 2.0;
-    }
+    y = l.para(
+        atlas,
+        "The relay only carries the connection; the world runs on this device. Same-Wi-Fi players always join over LAN.",
+        dim(),
+        left + 4.0,
+        y,
+        width - 8.0,
+    );
+    y += 2.0;
     l.panel(left - 4.0, card_top - 4.0, width + 8.0, y - card_top + 4.0);
+    y + 6.0 - top
 }
 
 fn voice_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) {
@@ -1701,6 +1815,12 @@ pub fn scroll_range(atlas: &HudAtlas, size: (f32, f32), ui: &Ui, view: &View) ->
         .overflow
         .map_or(0, |(total, fit_rows)| (total - fit_rows).max(0))
 }
+/// The pixels a scrolled page (the Host page) can go down by; 0 for lists.
+pub fn page_scroll_range(atlas: &HudAtlas, size: (f32, f32), ui: &Ui, view: &View) -> f32 {
+    layout(atlas, size, ui, view).page_overflow.unwrap_or(0.0)
+}
+/// A wheel notch / finger step on a scrolled page, in GUI pixels.
+pub const PAGE_STEP: f32 = 24.0;
 
 /// The focused field's box in GUI pixels (where the IME composition shows).
 pub fn focused_box(atlas: &HudAtlas, size: (f32, f32), ui: &Ui, view: &View) -> Option<[f32; 4]> {
@@ -1762,6 +1882,44 @@ mod tests {
             let voice = l.buttons.iter().find(|b| b.action == Action::Tab(tab)).unwrap();
             assert_eq!(press(&atlas, size, (voice.x + 1.0, voice.y + 1.0), &ui, &view), Some(Action::Tab(tab)));
         }
+    }
+
+    #[test]
+    fn the_host_page_scrolls_as_a_whole_and_never_shows_half_an_element() {
+        let atlas = atlas();
+        let size = (427.0, 240.0);
+        let mut ui = Ui::default();
+        ui.go(Tab::Host);
+        let mut view = View::default();
+        view.host = HostView {
+            in_world: true,
+            can_publish: true,
+            publishing: true,
+            address: Some("abc.e4mc.link".into()),
+            guests: 1,
+            problem: None,
+            copied: false,
+            world: "OneBlock".into(),
+        };
+        let max = page_scroll_range(&atlas, size, &ui, &view);
+        assert!(max > 0.0, "the full Host page is taller than a phone screen");
+        let top = layout(&atlas, size, &ui, &view);
+        // Unscrolled: the relay Save button is below the fold, nothing crosses the bottom.
+        assert!(!top.buttons.iter().any(|b| b.action == Action::SaveRelay));
+        assert!(top.lines.iter().all(|t| t.y + 9.0 <= size.1 - 27.0));
+        assert!(top.buttons.iter().filter(|b| b.action == Action::CycleIcon).all(|b| b.y + 20.0 <= size.1 - 27.0 + 0.5));
+        // Scrolled to the end: Save is there and clickable, and nothing pokes above the page.
+        ui.page_scroll = max;
+        let end = layout(&atlas, size, &ui, &view);
+        let save = end.buttons.iter().find(|b| b.action == Action::SaveRelay).expect("Save after scrolling");
+        assert_eq!(press(&atlas, size, (save.x + 2.0, save.y + 2.0), &ui, &view), Some(Action::SaveRelay));
+        let page_top = end.buttons.iter().find(|b| b.action == Action::Tab(Tab::Friends)).unwrap().y + 26.0;
+        assert!(end.lines.iter().all(|t| t.y >= page_top - 0.5), "no line above the page");
+        assert!(end.fields.iter().all(|f| f.y >= page_top - 0.5));
+        // Over-scrolling clamps to the same layout.
+        ui.page_scroll = max + 500.0;
+        let over = layout(&atlas, size, &ui, &view);
+        assert_eq!(over.lines.len(), end.lines.len());
     }
 
     #[test]

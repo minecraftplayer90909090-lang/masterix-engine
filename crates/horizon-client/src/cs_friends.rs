@@ -89,6 +89,8 @@ pub struct Message {
     pub with: String,
     pub body: String,
     pub mine: bool,
+    /// A world invite sent as a chat message: the address to join (`meta.address`).
+    pub invite: Option<String>,
 }
 
 /// What the worker fetched.
@@ -281,6 +283,7 @@ impl Client {
                 with: to.to_owned(),
                 body: text.to_owned(),
                 mine: true,
+                invite: None,
             });
         self.send(Cmd::Send {
             to: to.to_owned(),
@@ -740,11 +743,15 @@ fn parse_snapshot(j: &serde_json::Value, me_id: &str) -> Snapshot {
                     let from = s(&m["from"]);
                     let to = s(&m["to"]);
                     let mine = from == me_id;
+                    let invite = (m["kind"].as_str() == Some("invite"))
+                        .then(|| s(&m["meta"]["address"]))
+                        .filter(|a| !a.is_empty());
                     Some(Message {
                         id: m["id"].as_i64()?,
                         with: if mine { to } else { from },
                         body: s(&m["body"]),
                         mine,
+                        invite,
                     })
                 })
                 .collect()
