@@ -258,6 +258,7 @@ impl Game<'_> {
             max_players,
             allowed,
             closed_reason,
+            blocked: ui.blocked.clone(),
         });
     }
 
@@ -280,8 +281,9 @@ impl Game<'_> {
                     lines.push(format!("Your world is public: {domain} ({who})."));
                 }
                 e4mc_friends::Event::Broadcast(message) => lines.push(message),
-                e4mc_friends::Event::GuestJoined => {
-                    lines.push("A guest joined through the public address.".to_owned())
+                e4mc_friends::Event::GuestJoined => {}
+                e4mc_friends::Event::GuestNamed(name) => {
+                    lines.push(format!("{name} joined through the public address."))
                 }
                 e4mc_friends::Event::GuestLeft => {
                     lines.push("A public-address guest left.".to_owned())

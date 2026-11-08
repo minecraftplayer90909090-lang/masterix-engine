@@ -43,12 +43,20 @@ pub struct SessionState {
     pub problem: Option<String>,
 }
 
+/// A guest being carried: the name they logged in with and the host's
+/// "end it" flag, which the bridge watches.
+pub(crate) struct Guest {
+    pub name: String,
+    pub kicked: Arc<std::sync::atomic::AtomicBool>,
+}
+
 pub(crate) struct Shared {
     pub config: SessionConfig,
     pub events: Sender<crate::PublishEvent>,
     pub state: Arc<Mutex<SessionState>>,
     pub guests: Arc<AtomicUsize>,
     pub policy: Arc<Mutex<crate::GuestPolicy>>,
+    pub guests_by_name: Arc<Mutex<Vec<Guest>>>,
     pub stop: Arc<watch::Sender<bool>>,
 }
 
@@ -272,13 +280,26 @@ async fn write_message(send: &mut SendStream, message: &Serverbound) -> anyhow::
 /// the pump would be skipped with it.
 struct GuestGuard {
     shared: Arc<Shared>,
+    kicked: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Drop for GuestGuard {
     fn drop(&mut self) {
         self.shared.guests.fetch_sub(1, Ordering::Relaxed);
         self.shared.state.lock().unwrap().guests -= 1;
+        self.shared
+            .guests_by_name
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|g| !Arc::ptr_eq(&g.kicked, &self.kicked));
         self.shared.emit(crate::PublishEvent::GuestLeft);
+    }
+}
+
+/// Resolves when the host kicks this guest.
+async fn until_kicked(flag: Arc<std::sync::atomic::AtomicBool>) {
+    while !flag.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
 }
 
@@ -419,7 +440,7 @@ fn login_disconnect(reason: &str) -> Vec<u8> {
 /// without counting as guests.
 async fn bridge(shared: Arc<Shared>, mut send: SendStream, mut recv: RecvStream) {
     let mut opening = Vec::new();
-    let _guard = match read_opening(&mut recv, &mut opening).await {
+    let guard = match read_opening(&mut recv, &mut opening).await {
         Opening::Status => None,
         Opening::Other => {
             let _ = send.finish();
@@ -444,12 +465,27 @@ async fn bridge(shared: Arc<Shared>, mut send: SendStream, mut recv: RecvStream)
             }
             shared.guests.fetch_add(1, Ordering::Relaxed);
             shared.state.lock().unwrap().guests += 1;
+            let kicked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            shared
+                .guests_by_name
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(Guest {
+                    name: name.clone(),
+                    kicked: kicked.clone(),
+                });
             shared.emit(crate::PublishEvent::GuestJoined);
+            shared.emit(crate::PublishEvent::GuestNamed(name));
             Some(GuestGuard {
                 shared: shared.clone(),
+                kicked,
             })
         }
     };
+    let kicked = guard
+        .as_ref()
+        .map(|g| g.kicked.clone())
+        .unwrap_or_else(|| Arc::new(std::sync::atomic::AtomicBool::new(false)));
     let result = match TcpStream::connect(shared.config.lan).await {
         Ok(server) => {
             let (mut server_read, mut server_write) = server.into_split();
@@ -464,11 +500,18 @@ async fn bridge(shared: Arc<Shared>, mut send: SendStream, mut recv: RecvStream)
                 copied
             };
             let to_guest = tokio::io::copy(&mut server_read, &mut send);
-            let (a, b) = tokio::join!(to_server, to_guest);
+            let pump = async { tokio::join!(to_server, to_guest) };
+            // A kick ends the pump: both halves are dropped, the guest's game
+            // sees its connection close and the world sees the player leave.
+            let outcome = tokio::select! {
+                both = pump => Some(both),
+                _ = until_kicked(kicked) => None,
+            };
             let _ = send.finish();
-            match (a, b) {
-                (Ok(_), Ok(_)) => Ok(()),
-                (Err(e), _) | (_, Err(e)) => Err(anyhow::anyhow!(e)),
+            match outcome {
+                None => Err(anyhow::anyhow!(crate::GuestPolicy::KICKED)),
+                Some((Ok(_), Ok(_))) => Ok(()),
+                Some((Err(e), _) | (_, Err(e))) => Err(anyhow::anyhow!(e)),
             }
         }
         Err(e) => {
@@ -531,6 +574,8 @@ mod opening_tests {
         policy.allowed = Some(["Steve".to_owned()].into_iter().collect());
         assert!(policy.admit("steve", 0).is_ok());
         assert!(policy.admit("Alex", 0).is_err());
+        policy.blocked.insert("Steve".to_owned());
+        assert_eq!(policy.admit("steve", 0), Err(crate::GuestPolicy::BLOCKED.to_owned()));
         let d = login_disconnect("no");
         assert_eq!(d[1], 0, "login disconnect is packet 0");
     }

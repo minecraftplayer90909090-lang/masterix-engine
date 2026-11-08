@@ -12,6 +12,8 @@ pub struct View {
     pub domain: Option<String>,
     /// Guests being carried right now.
     pub guests: usize,
+    /// Their names, in login order.
+    pub guest_names: Vec<String>,
     /// Why publishing isn't serving, when the player asked for it.
     pub problem: Option<String>,
 }
@@ -25,6 +27,8 @@ pub enum Event {
     Broadcast(String),
     /// A guest's stream is being carried.
     GuestJoined,
+    /// The guest logged in by this name.
+    GuestNamed(String),
     /// The guest's stream ended.
     GuestLeft,
     /// A guest was turned away at the relay (the hosting settings): who and why.
@@ -76,6 +80,7 @@ impl Sharing {
                 horizon_e4mc::PublishEvent::Published { domain } => Some(Event::Published(domain)),
                 horizon_e4mc::PublishEvent::Broadcast(message) => Some(Event::Broadcast(message)),
                 horizon_e4mc::PublishEvent::GuestJoined => Some(Event::GuestJoined),
+                horizon_e4mc::PublishEvent::GuestNamed(name) => Some(Event::GuestNamed(name)),
                 horizon_e4mc::PublishEvent::GuestLeft => Some(Event::GuestLeft),
                 horizon_e4mc::PublishEvent::GuestRefused { name, reason } => {
                     Some(Event::GuestRefused(name, reason))
@@ -83,6 +88,11 @@ impl Sharing {
                 horizon_e4mc::PublishEvent::Problem(_) => None,
             })
             .collect()
+    }
+
+    /// End the stream of the guest logged in as `name`; how many were ended.
+    pub fn kick(&self, name: &str) -> usize {
+        self.publish.as_ref().map_or(0, |p| p.kick(name))
     }
 
     /// Who the relay lets in from now on.
@@ -102,6 +112,7 @@ impl Sharing {
                 View {
                     domain: state.domain,
                     guests: state.guests,
+                    guest_names: publish.guest_names(),
                     problem: state.problem,
                 }
             }

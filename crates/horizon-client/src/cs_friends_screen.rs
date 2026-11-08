@@ -206,6 +206,8 @@ pub struct Ui {
     pub relay: String,
     /// Names invited to this world this session ("invited only" lets them in).
     pub invited: std::collections::BTreeSet<String>,
+    /// Names the host kicked this session: they can't come back in.
+    pub blocked: std::collections::BTreeSet<String>,
     /// A friend's Remove was pressed once; the next press removes.
     pub confirm_remove: Option<String>,
     pub anim: Anim,
@@ -268,6 +270,8 @@ pub struct HostView {
     pub publishing: bool,
     pub address: Option<String>,
     pub guests: usize,
+    /// The guests' names, in login order (each gets a Kick button).
+    pub guest_names: Vec<String>,
     pub problem: Option<String>,
     pub copied: bool,
     pub world: String,
@@ -376,6 +380,8 @@ pub enum Action {
     StopPublish,
     CopyAddress,
     InviteAll,
+    /// Remove this guest from the world (and keep them out this session).
+    Kick(String),
     SaveMotd,
     CycleIcon,
     /// Player limit up (+1) or down (-1) a step.
@@ -914,7 +920,7 @@ fn friends_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &Vie
                         50.0,
                         "Invite",
                         Action::Invite(f.id.clone()),
-                        f.online() && view.host.address.is_some(),
+                        view.host.address.is_some(),
                     );
                 }
                 if !removing {
@@ -1083,6 +1089,23 @@ fn host_page(atlas: &HudAtlas, l: &mut Layout, f: &Frame, ui: &Ui, view: &View) 
         l.button(left + 4.0 + bw + 4.0, y, bw, "Invite All", Action::InviteAll, hv.address.is_some());
         l.button(left + 4.0 + 2.0 * (bw + 4.0), y, bw, "Stop", Action::StopPublish, true);
         y += 26.0;
+        // Who is in through the address, each with Kick (the host's door).
+        if !hv.guest_names.is_empty() {
+            l.text(
+                format!("In your world ({}):", hv.guest_names.len()),
+                grey(),
+                left + 4.0,
+                y + 2.0,
+            );
+            y += 14.0;
+            for name in &hv.guest_names {
+                l.mark(Mark::Dot { x: left + 8.0, y: y + 7.0, color: green() });
+                l.text(fit(atlas, name, width - 90.0), WHITE, left + 16.0, y + 5.0);
+                l.button(right - 58.0, y, 54.0, "Kick", Action::Kick(name.clone()), true);
+                y += 22.0;
+            }
+            y += 4.0;
+        }
     } else {
         l.mark(Mark::Dot { x: left + 6.0, y: y + 1.0, color: yellow() });
         l.text(fit(atlas, &format!("{} · private", hv.world), width - 20.0), WHITE, left + 14.0, y);
@@ -1897,6 +1920,7 @@ mod tests {
             publishing: true,
             address: Some("abc.e4mc.link".into()),
             guests: 1,
+            guest_names: vec!["Alex".into()],
             problem: None,
             copied: false,
             world: "OneBlock".into(),

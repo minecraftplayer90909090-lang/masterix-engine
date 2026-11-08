@@ -59,6 +59,9 @@ pub struct GuestPolicy {
     pub allowed: Option<std::collections::BTreeSet<String>>,
     /// What a guest the list keeps out is told.
     pub closed_reason: String,
+    /// Players the host removed: refused however open the world is (compared
+    /// case insensitively), told `Self::BLOCKED`.
+    pub blocked: std::collections::BTreeSet<String>,
 }
 
 impl GuestPolicy {
@@ -66,9 +69,17 @@ impl GuestPolicy {
     pub const DEFAULT_CLOSED: &'static str = "This world is open to the host's friends only.";
     /// The reason a guest over the player limit sees.
     pub const FULL: &'static str = "The world is full.";
+    /// The reason a guest the host removed sees.
+    pub const BLOCKED: &'static str = "The host removed you from this world.";
+    /// What a guest sees when the host kicks them mid-game (the stream ends;
+    /// the game shows its own "connection lost", this is the log line).
+    pub const KICKED: &'static str = "kicked by the host";
 
     /// Whether `name` may log in now, else the refusal text.
     pub fn admit(&self, name: &str, playing: usize) -> Result<(), String> {
+        if self.blocked.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            return Err(Self::BLOCKED.to_owned());
+        }
         if self.max_players.is_some_and(|max| playing >= max) {
             return Err(Self::FULL.to_owned());
         }
@@ -103,8 +114,10 @@ pub enum PublishEvent {
     Published { domain: String },
     /// A note the relay asked every host to show its players.
     Broadcast(String),
-    /// A guest's stream is being carried.
+    /// A guest's stream is being carried: who.
     GuestJoined,
+    /// A guest logged in by this name (follows `GuestJoined`).
+    GuestNamed(String),
     /// A guest was refused at the relay: who, and the reason they saw.
     GuestRefused { name: String, reason: String },
     /// The guest's stream ended.
@@ -119,6 +132,7 @@ struct Inner {
     state: Arc<Mutex<SessionState>>,
     guests: Arc<std::sync::atomic::AtomicUsize>,
     policy: Arc<Mutex<GuestPolicy>>,
+    guests_by_name: Arc<Mutex<Vec<session::Guest>>>,
     stop: Arc<tokio::sync::watch::Sender<bool>>,
     stopped: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -144,6 +158,7 @@ impl Publish {
             state: state.clone(),
             guests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             policy: Arc::new(Mutex::new(GuestPolicy::default())),
+            guests_by_name: Arc::new(Mutex::new(Vec::new())),
             stop: Arc::new(stop),
             stopped: AtomicBool::new(false),
             thread: Mutex::new(None),
@@ -157,6 +172,7 @@ impl Publish {
             state,
             guests: inner.guests.clone(),
             policy: inner.policy.clone(),
+            guests_by_name: inner.guests_by_name.clone(),
             stop: inner.stop.clone(),
         });
         let thread = std::thread::Builder::new()
@@ -195,6 +211,35 @@ impl Publish {
             .policy
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = policy;
+    }
+
+    /// The names of the guests being carried right now, in login order.
+    pub fn guest_names(&self) -> Vec<String> {
+        self.inner
+            .guests_by_name
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|g| g.name.clone())
+            .collect()
+    }
+
+    /// End the stream of every guest logged in as `name` (case insensitive):
+    /// the game sees the connection drop. Nothing keeps them from coming
+    /// back; add the name to `GuestPolicy::blocked` for that. Returns how
+    /// many streams were ended.
+    pub fn kick(&self, name: &str) -> usize {
+        let guests = self
+            .inner
+            .guests_by_name
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut n = 0;
+        for guest in guests.iter().filter(|g| g.name.eq_ignore_ascii_case(name)) {
+            guest.kicked.store(true, Ordering::Relaxed);
+            n += 1;
+        }
+        n
     }
 
     /// The policy in force.

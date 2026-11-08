@@ -147,7 +147,67 @@ pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeSet
         max_players: usize::try_from(max_players).ok().filter(|&n| n > 0),
         allowed,
         closed_reason,
+        blocked: publish.policy().blocked,
     });
+}
+
+/// Names the host removed (newline separated; null or empty = none): refused
+/// at the door however open the world is. Kept across `nativeSetPolicy`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeSetBlocked(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    blocked: JString,
+) {
+    let Some(publish) = publish(handle) else {
+        return;
+    };
+    let text: Option<String> = if blocked.is_null() {
+        None
+    } else {
+        env.get_string(&blocked).ok().map(Into::into)
+    };
+    let mut policy = publish.policy();
+    policy.blocked = text
+        .map(|list| {
+            list.lines()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    publish.set_policy(policy);
+}
+
+/// The guests connected right now, one name per line in login order; null when none.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeGuestNames(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jstring {
+    let names = publish(handle).map(|p| p.guest_names()).unwrap_or_default();
+    string_out(&mut env, (!names.is_empty()).then(|| names.join("\n")))
+}
+
+/// End the connection of the guest logged in as `name`; how many streams ended.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_craftstudio_cslauncher_e4mc_E4mcNative_nativeKick(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    name: JString,
+) -> jint {
+    let Some(publish) = publish(handle) else {
+        return 0;
+    };
+    let name: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    jint::try_from(publish.kick(&name)).unwrap_or(jint::MAX)
 }
 
 /// What happened since the last poll that the player should hear of: one

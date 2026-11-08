@@ -340,6 +340,11 @@ impl Game<'_> {
             publishing: self.e4mc.is_some(),
             address,
             guests,
+            guest_names: self
+                .e4mc
+                .as_ref()
+                .map(|s| s.inner.view().guest_names)
+                .unwrap_or_default(),
             problem,
             copied,
             world: if self.title.is_none() {
@@ -473,7 +478,7 @@ impl Game<'_> {
                     && let Some(client) = &self.cs_friends
                 {
                     client.invite(None, address, &view.host.world);
-                    for f in client.state.friends.iter().filter(|f| f.online()) {
+                    for f in &client.state.friends {
                         self.cs_friends_ui.invited.insert(f.name.clone());
                     }
                     self.e4mc_apply_policy(true);
@@ -511,6 +516,17 @@ impl Game<'_> {
                 if let Err(e) = self.e4mc_start() {
                     self.system_message(Text::literal(format!("Couldn't publish the world: {e}")));
                 }
+            }
+            Action::Kick(name) => {
+                self.cs_friends_ui.blocked.insert(name.clone());
+                self.cs_friends_ui.invited.remove(&name);
+                self.e4mc_apply_policy(true);
+                let ended = self.e4mc.as_ref().map_or(0, |s| s.inner.kick(&name));
+                self.system_message(Text::literal(if ended > 0 {
+                    format!("{name} was removed from your world.")
+                } else {
+                    format!("{name} is not connected through the public address.")
+                }));
             }
             Action::StopPublish => self.e4mc_stop(),
             Action::CopyAddress => self.e4mc_copy(),

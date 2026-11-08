@@ -323,7 +323,7 @@ impl Client {
                 Ok(Reply::Invited(n)) => {
                     self.state.info = Some((
                         if n == 0 {
-                            "No friend is online to invite right now.".to_owned()
+                            "You have no friends to invite yet.".to_owned()
                         } else {
                             format!("Invite sent to {n} friend{}.", if n == 1 { "" } else { "s" })
                         },
